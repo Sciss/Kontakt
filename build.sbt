@@ -19,6 +19,6 @@ lazy val root = project
 
 lazy val deps = new {
   lazy val main = new {
-    val imageJ = "1.47h"
+    val imageJ = "1.53i" // "1.47h"
   }
 }
