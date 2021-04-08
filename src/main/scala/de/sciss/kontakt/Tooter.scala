@@ -43,7 +43,7 @@ object Tooter {
       token <- app.login(username = args(0), password = args(1))
       res   <- tootOpt match {
         case Some(text) => app.toot(status = text, StatusVisibility.Public)(token)
-        case None       => app.Accounts.fetch(Id("1"))(token)
+        case None       => app.Accounts.fetch(Id("304274"))(token)
       }
     } yield {
       res
@@ -54,10 +54,12 @@ object Tooter {
       case Success(data) =>
         println("Successful.")
         println(data)
+        sys.exit()
 
       case Failure(ex) =>
         println("Failed:")
         ex.printStackTrace()
+        sys.exit(1)
     }
   }
 }
