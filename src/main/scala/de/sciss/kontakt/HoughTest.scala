@@ -28,7 +28,7 @@ object HoughTest {
       val res = ht.runHeadless(ip)
 
       /*
-      
+
         expected output:
 
         x 1682, y 582, radius 46

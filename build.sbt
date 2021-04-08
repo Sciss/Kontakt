@@ -13,12 +13,16 @@ lazy val root = project
     scalaVersion := "2.13.5", // IntelliJ is not ready for Dotty :(
     resolvers    += "imagej.releases" at "https://maven.scijava.org/content/repositories/releases/",
     libraryDependencies ++= Seq(
-      "net.imagej" % "ij" % deps.main.imageJ
+      "net.harawata"  %  "appdirs"    % deps.main.appDirs,    // finding cache directory
+      "net.imagej"    %   "ij"        % deps.main.imageJ,     // analyzing image data
+      "de.sciss"      %%  "scaladon"  % deps.main.scaladon,   // Mastodon client
     )
   )
 
 lazy val deps = new {
   lazy val main = new {
-    val imageJ = "1.53i" // "1.47h"
+    val appDirs   = "1.2.1"
+    val imageJ    = "1.53i" // "1.47h"
+    val scaladon  = "0.4.0-SNAPSHOT"
   }
 }
