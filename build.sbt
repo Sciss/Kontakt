@@ -23,6 +23,6 @@ lazy val deps = new {
   lazy val main = new {
     val appDirs   = "1.2.1"
     val imageJ    = "1.53i" // "1.47h"
-    val scaladon  = "0.4.0-SNAPSHOT"
+    val scaladon  = "0.4.0"
   }
 }
