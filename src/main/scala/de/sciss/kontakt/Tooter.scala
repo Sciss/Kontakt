@@ -18,15 +18,25 @@ import de.sciss.scaladon.{Id, Mastodon, StatusVisibility}
 import de.sciss.scaladon.Mastodon.Scope
 import net.harawata.appdirs.AppDirsFactory
 
+import java.io.File
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success}
 
 object Tooter {
+  sealed trait Action
+  case class GetAccount(id: Id) extends Action
+  case class SendToot(text: String) extends Action
+  case class UploadMedia(f: File) extends Action
+
   def main(args: Array[String]): Unit = {
     require (args.length >= 2, "Must provide username (or e-mail) and password")
-    val tootOpt = if (args.length >= 3) Some(args(2)) else None
+    val action = if (args.length < 3) GetAccount(Id("304274")) else {
+      val s = args(2)
+      val f = new File(s)
+      if (f.isFile) UploadMedia(f) else SendToot(s)
+    }
 
     val appDirs     = AppDirsFactory.getInstance
     val configBase  = appDirs.getUserConfigDir("kontakt", /* version */ null, /* author */ "de.sciss")
@@ -41,9 +51,10 @@ object Tooter {
       app   <- Mastodon.createApp(baseURI = "botsin.space", clientName = "kontakt_tooter",
         scopes = Set(Scope.Read, Scope.Write), storageLoc = configBase)
       token <- app.login(username = args(0), password = args(1))
-      res   <- tootOpt match {
-        case Some(text) => app.toot(status = text, StatusVisibility.Public)(token)
-        case None       => app.Accounts.fetch(Id("304274"))(token)
+      res   <- action match {
+        case SendToot(text) => app.toot(status = text, StatusVisibility.Public)(token)
+        case GetAccount(id) => app.Accounts.fetch(id)(token)
+        case UploadMedia(f) => app.Statuses.uploadMedia(f)(token)
       }
     } yield {
       res
