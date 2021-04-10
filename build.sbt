@@ -15,6 +15,7 @@ lazy val root = project
     libraryDependencies ++= Seq(
       "net.harawata"  %  "appdirs"    % deps.main.appDirs,    // finding cache directory
       "net.imagej"    %   "ij"        % deps.main.imageJ,     // analyzing image data
+      "mpicbg"        %   "mpicbg"    % deps.main.mpicbg,     // 2D transforms
       "de.sciss"      %%  "scaladon"  % deps.main.scaladon,   // Mastodon client
     )
   )
@@ -23,6 +24,7 @@ lazy val deps = new {
   lazy val main = new {
     val appDirs   = "1.2.1"
     val imageJ    = "1.53i" // "1.47h"
+    val mpicbg    = "1.4.1"
     val scaladon  = "0.4.0"
   }
 }
