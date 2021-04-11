@@ -1,4 +1,4 @@
-// same as Transform_Perspective, but they bloody didn't specify a package
+// source: https://github.com/axtimwalde/mpicbg/blob/master/mpicbg_/src/main/java/Transform_Perspective.java
 // GNU GPL v2+ - https://maven.scijava.org/content/groups/public/mpicbg/mpicbg/1.4.1/mpicbg-1.4.1.pom
 // additions by hhr: setPointMatches, getMapping, getModel
 
