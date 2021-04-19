@@ -13,6 +13,13 @@ To contact the author, send an e-mail to `contact at sciss.de`.
 ## building
 
 Builds with sbt against Scala 2.13.
+Create executable: `sbt assembly`
+
+## run on the Raspberry Pi
+
+    java -Xmx768m -jar kontakt.jar --init-delay 10 -V --user kontakt... --pass ...
+
+Add `--no-shutdown` during testing.
 
 ## test runs
 

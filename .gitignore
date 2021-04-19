@@ -6,5 +6,5 @@ project/boot/
 .idea_modules/
 *.app
 *.swp
-Mellite.jar
 /.bsp/
+/kontakt.jar
