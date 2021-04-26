@@ -1,8 +1,19 @@
 lazy val baseName       = "Kontakt"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.1.0-SNAPSHOT"
+lazy val projectVersion = "0.2.0-SNAPSHOT"
+
+lazy val buildInfoSettings = Seq(
+  // ---- build info ----
+  buildInfoKeys := Seq(name, organization, version, scalaVersion, description,
+    BuildInfoKey.map(homepage) { case (k, opt)           => k -> opt.get },
+    BuildInfoKey.map(licenses) { case (_, Seq((lic, _))) => "license" -> lic }
+  ),
+  buildInfoOptions += BuildInfoOption.BuildTime
+)
 
 lazy val root = project.in(file("."))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(buildInfoSettings)
   .settings(assemblySettings)
   .settings(
     name         := baseName,
@@ -20,7 +31,8 @@ lazy val root = project.in(file("."))
       "net.harawata"  %  "appdirs"  % deps.main.appDirs,    // finding standard directories
       "net.imagej"    %  "ij"       % deps.main.imageJ,     // analyzing image data
       "org.rogach"    %% "scallop"  % deps.main.scallop,    // command line option parsing
-    )
+    ),
+    buildInfoPackage := "de.sciss.kontakt",
   )
 
 lazy val deps = new {

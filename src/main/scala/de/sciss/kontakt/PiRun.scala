@@ -24,30 +24,46 @@ import java.util.concurrent.TimeUnit
 import java.util.{Date, Locale}
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
 object PiRun {
   case class Config(
-                   username     : String  = "user",
-                   password     : String  = "pass",
-                   initDelay    : Int     =   120,
-                   preCropLeft  : Int     =   500,
-                   preCropRight : Int     =  1000,
-                   shutterDay   : Int     =  5000,
-                   shutterNight : Int     = 15000,
-                   pumpTimeOut  : Int     =    90,
-                   pump         : Boolean = true,
-                   toot         : Boolean = true,
-                   verbose      : Boolean = false,
-                   shutdown     : Boolean = true,
+                   username       : String  = "user",
+                   password       : String  = "pass",
+                   initDelay      : Int     =   120,
+                   preCropLeft    : Int     =   500,
+                   preCropRight   : Int     =   500,
+                   shutterDay     : Int     =  5000,
+                   shutterMorning : Int     = 10000,
+                   shutterNight   : Int     = 15000,
+                   pumpTimeOut    : Int     =    90,
+                   pump           : Boolean = true,
+                   toot           : Boolean = true,
+                   verbose        : Boolean = false,
+                   shutdown       : Boolean = true,
                    )
+
+  private def buildInfString(key: String): String = try {
+    val clazz = Class.forName("de.sciss.kontakt.BuildInfo")
+    val m     = clazz.getMethod(key)
+    m.invoke(null).toString
+  } catch {
+    case NonFatal(_) => "?"
+  }
+
+  final def name          : String = "Kontakt"
+  final def version       : String = buildInfString("version")
+  final def builtAt       : String = buildInfString("builtAtString")
+  final def fullVersion   : String = s"v$version, built $builtAt"
+  final def nameAndVersion: String = s"$name $fullVersion"
 
   def main(args: Array[String]): Unit = {
     Locale.setDefault(Locale.US)
 
     object p extends ScallopConf(args) {
-      printedName = "PiRun"
-      //      version(fullName)
+      printedName = PiRun.nameAndVersion
+
       private val default = Config()
 
       val verbose: Opt[Boolean] = opt("verbose", short = 'V', default = Some(false),
@@ -71,6 +87,9 @@ object PiRun {
       val shutterDay: Opt[Int] = opt("shutter-day", default = Some(default.shutterDay),
         descr = s"Shutter time in microseconds during the day (default: ${default.shutterDay})."
       )
+      val shutterMorning: Opt[Int] = opt("shutter-morning", default = Some(default.shutterMorning),
+        descr = s"Shutter time in microseconds during the morning (default: ${default.shutterMorning})."
+      )
       val shutterNight: Opt[Int] = opt("shutter-night", default = Some(default.shutterNight),
         descr = s"Shutter time in microseconds during the night (default: ${default.shutterNight})."
       )
@@ -83,24 +102,27 @@ object PiRun {
 
       verify()
       val config: Config = Config(
-        username      = username(),
-        password      = password(),
-        initDelay     = initDelay(),
-        preCropLeft   = preCropLeft(),
-        preCropRight  = preCropRight(),
-        shutterDay    = shutterDay(),
-        shutterNight  = shutterNight(),
-        pumpTimeOut   = pumpTimeOut(),
-        verbose       = verbose(),
-        pump          = !noPump(),
-        toot          = !noToot(),
-        shutdown      = !noShutdown(),
+        username        = username(),
+        password        = password(),
+        initDelay       = initDelay(),
+        preCropLeft     = preCropLeft(),
+        preCropRight    = preCropRight(),
+        shutterDay      = shutterDay(),
+        shutterMorning  = shutterMorning(),
+        shutterNight    = shutterNight(),
+        pumpTimeOut     = pumpTimeOut(),
+        verbose         = verbose(),
+        pump            = !noPump(),
+        toot            = !noToot(),
+        shutdown        = !noShutdown(),
       )
     }
     run(p.config)
   }
 
   def run(c: Config): Unit = {
+    println(PiRun.nameAndVersion)
+
     val initDelayMS = math.max(0, c.initDelay) * 1000L
     if (initDelayMS > 0) {
       println(s"Waiting for ${c.initDelay} seconds.")
@@ -133,9 +155,10 @@ object PiRun {
 
     val odt       = OffsetDateTime.now()
     val date      = Date.from(odt.toInstant)
-    val isDay     = odt.getHour > 4 && odt.getHour < 20
-    println(s"Making photo (isDay? $isDay)...")
-    val shutter   = if (isDay) c.shutterDay else c.shutterNight
+    val isMorning = odt.getHour > 4 && odt.getHour < 8
+    val isDay     = odt.getHour > 8 && odt.getHour < 20
+    println(s"Making photo (isDay? $isDay; isMorning? $isMorning)...")
+    val shutter   = if (isDay) c.shutterDay else if (isMorning) c.shutterMorning else c.shutterNight
     val dirPhoto  = new File("photos").getCanonicalFile
     val fPhoto    = stampedFile(dirPhoto, pre = "snap", ext = "jpg", date = date)
     val resPhoto = Try {
@@ -190,7 +213,7 @@ object PiRun {
           false
       }
 
-      if (hasCrop) {
+      if (hasCrop && c.toot) {
         println("Tooting photo...")
         val text = s"The time is $odt - we're still trying to make contact..."
         val cToot = TootPhoto.Config(
@@ -221,7 +244,7 @@ object PiRun {
     if (c.shutdown) {
 //      if (c.verbose) {
         println("Shutting down...")
-        Thread.sleep(4000L)
+        Thread.sleep(8000L)
 //      }
       shutdown()
     } else {

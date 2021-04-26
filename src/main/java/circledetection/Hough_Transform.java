@@ -141,10 +141,15 @@ public class Hough_Transform implements PlugInFilter {
         int x = results[0];
         int y = results[1];
         int radius = results[2] + radiusMax + 3;
+        final int u0 = Math.max(         0, x - radius);
+        final int u1 = Math.min(x_midpoint, x + radius);
+        final int v0 = Math.max(         0, y - radius);
+        final int v1 = Math.min(y_midpoint, y + radius);
+        final int p1 = radiusMax - radiusMin;
 
-        for (int u = (x - radius); u < (x + radius); u++)
-            for (int v = (y - radius); v < (y + radius); v++)
-                for (int p = 0; p < (radiusMax - radiusMin); p++)
+        for (int u = u0; u < u1; u++)
+            for (int v = v0; v < v1; v++)
+                for (int p = 0; p < p1; p++)
                     if (u > 0 && v > 0 && p > 0)
                         accumulator[u][v][p] = 0;
     }
