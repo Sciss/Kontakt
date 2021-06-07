@@ -21,7 +21,7 @@ lazy val root = project.in(file("."))
     version      := projectVersion,
     homepage     := Some(url(s"https://git.iem.at/sciss/$baseName")),
     licenses     := Seq("AGPL v3+" -> url("http://www.gnu.org/licenses/agpl-3.0.txt")),
-    scalaVersion := "2.13.5",
+    scalaVersion := "2.13.6",
     resolvers    += "imagej.releases" at "https://maven.scijava.org/content/repositories/releases/",
     libraryDependencies ++= Seq(
       "com.pi4j"      %  "pi4j-core"            % deps.main.pi4j,       // GPIO control
