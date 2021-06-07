@@ -1,6 +1,6 @@
 lazy val baseName       = "Kontakt"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.2.0-SNAPSHOT"
+lazy val projectVersion = "0.3.0-SNAPSHOT"
 
 lazy val buildInfoSettings = Seq(
   // ---- build info ----
@@ -24,13 +24,16 @@ lazy val root = project.in(file("."))
     scalaVersion := "2.13.5",
     resolvers    += "imagej.releases" at "https://maven.scijava.org/content/repositories/releases/",
     libraryDependencies ++= Seq(
-      "de.sciss"      %% "fileutil" % deps.main.fileUtil,   // utility functions
-      "de.sciss"      %% "numbers"  % deps.main.numbers,    // numeric utilities
-      "de.sciss"      %% "scaladon" % deps.main.scaladon,   // Mastodon client
-      "mpicbg"        %  "mpicbg"   % deps.main.mpicbg,     // 2D transforms
-      "net.harawata"  %  "appdirs"  % deps.main.appDirs,    // finding standard directories
-      "net.imagej"    %  "ij"       % deps.main.imageJ,     // analyzing image data
-      "org.rogach"    %% "scallop"  % deps.main.scallop,    // command line option parsing
+      "com.pi4j"      %  "pi4j-core"            % deps.main.pi4j,       // GPIO control
+      "com.pi4j"      %  "pi4j-gpio-extension"  % deps.main.pi4j,       // PCA9685 support
+      "com.pi4j"      %  "pi4j-device"          % deps.main.pi4j,       // Servo motors
+      "de.sciss"      %% "fileutil"             % deps.main.fileUtil,   // utility functions
+      "de.sciss"      %% "numbers"              % deps.main.numbers,    // numeric utilities
+      "de.sciss"      %% "scaladon"             % deps.main.scaladon,   // Mastodon client
+      "mpicbg"        %  "mpicbg"               % deps.main.mpicbg,     // 2D transforms
+      "net.harawata"  %  "appdirs"              % deps.main.appDirs,    // finding standard directories
+      "net.imagej"    %  "ij"                   % deps.main.imageJ,     // analyzing image data
+      "org.rogach"    %% "scallop"              % deps.main.scallop,    // command line option parsing
     ),
     buildInfoPackage := "de.sciss.kontakt",
   )
@@ -42,6 +45,7 @@ lazy val deps = new {
     val imageJ    = "1.53i" // "1.47h"
     val mpicbg    = "1.4.1"
     val numbers   = "0.2.1"
+    val pi4j      = "1.3"
     val scaladon  = "0.4.0"
     val scallop   = "4.0.2"
   }

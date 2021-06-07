@@ -30,3 +30,5 @@ Add `--no-shutdown` during testing.
 `TootPhoto`:
 
     -u kontakt... -p ... -i /data/temp/_killme.jpg
+
+`ServoTest`
