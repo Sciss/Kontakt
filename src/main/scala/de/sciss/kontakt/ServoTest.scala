@@ -42,7 +42,7 @@ object ServoTest {
                      angle     : Option[Double] = None,
                      pwm       : Option[Int]    = None,
                      pwmMin    : Int            = 560,
-                     pwmMax    : Int            = 2600,
+                     pwmMax    : Int            = 2500,
                      freq      : Double         = 50.0,
                      waitMs    : Int            = 1000,
                    )
