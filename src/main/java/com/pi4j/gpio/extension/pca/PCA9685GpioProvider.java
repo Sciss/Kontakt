@@ -60,7 +60,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
 
     public static final String NAME = "com.pi4j.gpio.extension.pca.PCA9685GpioProvider";
     public static final String DESCRIPTION = "PCA9685 PWM Provider";
-    public static final int INTERNAL_CLOCK_FREQ = 25 * 1000 * 1000; // 25 MHz
+    public static final int INTERNAL_CLOCK_FREQ = 25 * 1000 * 1000;
     public static final BigDecimal MIN_FREQUENCY = new BigDecimal("40"); // 40 Hz
     public static final BigDecimal MAX_FREQUENCY = new BigDecimal("1000"); // 1 kHz
     /**
@@ -74,12 +74,12 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     public static final BigDecimal DEFAULT_FREQUENCY = ANALOG_SERVO_FREQUENCY;
     public static final int PWM_STEPS = 4096; // 12 Bit
     // Registers
-    private static final int PCA9685A_MODE1 = 0x00;
-    private static final int PCA9685A_PRESCALE = 0xFE;
-    private static final int PCA9685A_LED0_ON_L = 0x06;
-    private static final int PCA9685A_LED0_ON_H = 0x07;
-    private static final int PCA9685A_LED0_OFF_L = 0x08;
-    private static final int PCA9685A_LED0_OFF_H = 0x09;
+    private static final int PCA9685A_MODE1         = 0x00;
+    private static final int PCA9685A_PRESCALE      = 0xFE;
+    private static final int PCA9685A_LED0_ON_L     = 0x06;
+    private static final int PCA9685A_LED0_ON_H     = 0x07;
+    private static final int PCA9685A_LED0_OFF_L    = 0x08;
+    private static final int PCA9685A_LED0_OFF_H    = 0x09;
 
     private boolean i2cBusOwner = false;
     private final I2CBus bus;
@@ -159,11 +159,11 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         try {
             oldMode = device.read(PCA9685A_MODE1);
             int newMode = (oldMode & 0x7F) | 0x10; // sleep
-            device.write(PCA9685A_MODE1, (byte) newMode); // go to sleep
-            device.write(PCA9685A_PRESCALE, (byte) prescale);
-            device.write(PCA9685A_MODE1, (byte) oldMode);
+            device.write(PCA9685A_MODE1     , (byte) newMode); // go to sleep
+            device.write(PCA9685A_PRESCALE  , (byte) prescale);
+            device.write(PCA9685A_MODE1     , (byte) oldMode);
             Thread.sleep(1);
-            device.write(PCA9685A_MODE1, (byte) (oldMode | 0x80));
+            device.write(PCA9685A_MODE1     , (byte) (oldMode | 0x80));
         } catch (IOException e) {
             throw new RuntimeException("Unable to set prescale value [" + prescale + "]", e);
         } catch (InterruptedException e) {
@@ -205,9 +205,10 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         if (onPosition == offPosition) {
             throw new ValidationException("ON [" + onPosition + "] and OFF [" + offPosition + "] values must be different.");
         }
+        System.out.println("setPwm(_, " + onPosition + ", " + offPosition + ")");
         try {
-            device.write(PCA9685A_LED0_ON_L + 4 * channel, (byte) (onPosition & 0xFF));
-            device.write(PCA9685A_LED0_ON_H + 4 * channel, (byte) (onPosition >> 8));
+            device.write(PCA9685A_LED0_ON_L  + 4 * channel, (byte) (onPosition & 0xFF));
+            device.write(PCA9685A_LED0_ON_H  + 4 * channel, (byte) (onPosition >> 8));
             device.write(PCA9685A_LED0_OFF_L + 4 * channel, (byte) (offPosition & 0xFF));
             device.write(PCA9685A_LED0_OFF_H + 4 * channel, (byte) (offPosition >> 8));
         } catch (IOException e) {

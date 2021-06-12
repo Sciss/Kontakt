@@ -72,6 +72,7 @@ object ServoTest {
   def run(config: Config): Unit = {
     println("ServoTest")
     val gpioProvider  = createProvider()
+    println(s"period duration in microseconds: ${gpioProvider.getPeriodDurationMicros}")
     val gpio          = GpioFactory.getInstance
     val pin = config.channel match {
       case  0 => PCA9685Pin.PWM_00
@@ -100,7 +101,7 @@ object ServoTest {
     config.angle match {
       case Some(posD) =>
         val pos           = posD.toFloat
-        val pwmDuration   = servo.calculatePwmDuration(pos);
+        val pwmDuration   = servo.calculatePwmDuration(pos)
         println(s"position $pos corresponds to pwm duration $pwmDuration")
         servo.setPosition(pos)
 
@@ -109,6 +110,7 @@ object ServoTest {
 
     config.pwm match {
       case Some(v) =>
+        println(s"setServoPulseWidth($v)")
         servoDriver.setServoPulseWidth(v)
 
       case None =>
@@ -121,6 +123,6 @@ object ServoTest {
 
   def createProvider(): PCA9685GpioProvider = {
     val bus = I2CFactory.getInstance(I2CBus.BUS_1)
-    new PCA9685GpioProvider(bus, 0x40)
+    new PCA9685GpioProvider(bus, 0x40, new java.math.BigDecimal(50.0))
   }
 }

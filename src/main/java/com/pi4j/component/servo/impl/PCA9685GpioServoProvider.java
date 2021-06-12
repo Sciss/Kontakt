@@ -43,7 +43,7 @@ import com.pi4j.io.gpio.Pin;
 
 public class PCA9685GpioServoProvider implements ServoProvider {
 
-    private PCA9685GpioProvider provider;
+    private final PCA9685GpioProvider provider;
 
     protected Map<Pin, PCA9685GpioServoDriver> allocatedDrivers = new HashMap<>();
 
