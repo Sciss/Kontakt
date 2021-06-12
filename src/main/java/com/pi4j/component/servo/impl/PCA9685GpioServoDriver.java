@@ -31,6 +31,8 @@ package com.pi4j.component.servo.impl;
 
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 import com.pi4j.component.servo.ServoDriver;
 import com.pi4j.gpio.extension.pca.PCA9685GpioProvider;
 import com.pi4j.io.gpio.Pin;
@@ -83,6 +85,6 @@ public class PCA9685GpioServoDriver implements ServoDriver {
     }
 
     protected void updateResolution() {
-        resolution = new BigDecimal(4096).divide(getProvider().getFrequency(), BigDecimal.ROUND_HALF_DOWN).intValue();
+        resolution = new BigDecimal(4096).divide(getProvider().getFrequency(), RoundingMode.HALF_DOWN).intValue();
     }
 }

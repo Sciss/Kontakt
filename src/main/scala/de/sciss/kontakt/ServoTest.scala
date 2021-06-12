@@ -38,7 +38,8 @@ Exception in thread "Thread-0" java.lang.NullPointerException
 object ServoTest {
   case class Config(
                      channel   : Int = 0,
-                     angle     : Double = 0.0,
+                     angle     : Option[Double] = None,
+                     pwm       : Option[Int]    = None,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -50,14 +51,18 @@ object ServoTest {
         descr = s"Servo controller channel 0 to 15 (default: ${default.channel}).",
         validate = x => x >= 0 && x < 16
       )
-      val angle: Opt[Double] = opt(required = true, default = Some(default.angle),
-        descr = s"Target servo angle -100% to +100% (default: ${default.angle})."
+      val angle: Opt[Double] = opt(required = false,
+        descr = "Target servo angle -100% to +100%."
+      )
+      val pwm: Opt[Int] = opt(required = false,
+        descr = "PWM value."
       )
 
       verify()
       val config: Config = Config(
         channel   = channel(),
-        angle     = angle(),
+        angle     = angle.toOption,
+        pwm       = pwm  .toOption,
       )
     }
 
@@ -89,11 +94,26 @@ object ServoTest {
     val servoName = s"Servo_${config.channel}"
     /* val pin = */ gpio.provisionPwmOutputPin(gpioProvider, pin, servoName)
     val servoProvider = new PCA9685GpioServoProvider(gpioProvider)
-    val servo         = new GenericServo(servoProvider.getServoDriver(pin), servoName)
-    val pos           = config.angle.toFloat
-    val pwmDuration   = servo.calculatePwmDuration(pos);
-    println(s"position $pos corresponds to pwm duration $pwmDuration")
-    servo.setPosition(pos)
+    val servoDriver   = servoProvider.getServoDriver(pin)
+    val servo         = new GenericServo(servoDriver, servoName)
+
+    config.angle match {
+      case Some(posD) =>
+        val pos           = posD.toFloat
+        val pwmDuration   = servo.calculatePwmDuration(pos);
+        println(s"position $pos corresponds to pwm duration $pwmDuration")
+        servo.setPosition(pos)
+
+      case None =>
+    }
+
+    config.pwm match {
+      case Some(v) =>
+        servoDriver.setServoPulseWidth(v)
+        
+      case None =>
+    }
+
     println("Ok")
   }
 
