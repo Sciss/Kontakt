@@ -37,7 +37,7 @@ import com.pi4j.io.gpio.Pin;
  */
 public class PCA9685GpioProviderPinCache extends GpioProviderPinCache {
 
-    private int pwmOnValue = -1;
+    private int pwmOnValue  = -1;
     private int pwmOffValue = -1;
 
     public PCA9685GpioProviderPinCache(Pin pin) {

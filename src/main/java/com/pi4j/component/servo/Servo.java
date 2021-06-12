@@ -42,15 +42,15 @@ public interface Servo extends Component {
     //------------------------------------------------------------------------------------------------------------------
     // Limits
     //------------------------------------------------------------------------------------------------------------------
-    float POS_MAX_LEFT = -100.0f; // Consider this to be the max. left position of an R/C-Radio stick
-    float POS_NEUTRAL = 0.0f; // Consider this to be the neutral position of an R/C-Radio stick
-    float POS_MAX_RIGHT = 100.0f; // Consider this to be the max. right position of an R/C-Radio stick
+    float POS_MAX_LEFT      = -100.0f; // Consider this to be the max. left  position of an R/C-Radio stick
+    float POS_NEUTRAL       = 0.0f;    // Consider this to be the neutral    position of an R/C-Radio stick
+    float POS_MAX_RIGHT     = 100.0f;  // Consider this to be the max. right position of an R/C-Radio stick
 
-    float END_POINT_MIN = 0.0f;
-    float END_POINT_MAX = 150.0f;
+    float END_POINT_MIN     = 0.0f;
+    float END_POINT_MAX     = 150.0f;
 
-    float SUBTRIM_MAX_LEFT = -200.0f;
-    float SUBTRIM_NEUTRAL = 0.0f;
+    float SUBTRIM_MAX_LEFT  = -200.0f;
+    float SUBTRIM_NEUTRAL   = 0.0f;
     float SUBTRIM_MAX_RIGHT = 200.0f;
 
     //------------------------------------------------------------------------------------------------------------------

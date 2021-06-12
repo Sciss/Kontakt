@@ -54,6 +54,7 @@ import com.pi4j.io.i2c.I2CFactory.UnsupportedBusNumberException;
  * </p>
  *
  * @author Christian Wehrli
+ * @author Hanns Holger Rutz
  */
 public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvider {
 
@@ -129,7 +130,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
      * Target frequency (accuracy is around +/- 5%!)
      *
      * @param frequency desired PWM frequency
-     * @see #setFrequency(int, BigDecimal)
+     * @see #setFrequency(BigDecimal, BigDecimal)
      */
     public void setFrequency(BigDecimal frequency) {
         setFrequency(frequency, BigDecimal.ONE);
@@ -227,8 +228,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         validatePin(pin, pwmOnValue, pwmOffValue);
         final int channel = pin.getAddress();
         try {
-            device.write(PCA9685A_LED0_ON_L + 4 * channel, (byte) 0x00);
-            device.write(PCA9685A_LED0_ON_H + 4 * channel, (byte) 0x10); // set bit 4 to high
+            device.write(PCA9685A_LED0_ON_L  + 4 * channel, (byte) 0x00);
+            device.write(PCA9685A_LED0_ON_H  + 4 * channel, (byte) 0x10); // set bit 4 to high
             device.write(PCA9685A_LED0_OFF_L + 4 * channel, (byte) 0x00);
             device.write(PCA9685A_LED0_OFF_H + 4 * channel, (byte) 0x00);
         } catch (IOException e) {
@@ -245,13 +246,13 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
      * @param pin represents channel 0..15
      */
     public void setAlwaysOff(Pin pin) {
-        final int pwmOnValue = 0x0000;
+        final int pwmOnValue  = 0x0000;
         final int pwmOffValue = 0x1000;
         validatePin(pin, pwmOnValue, pwmOffValue);
         final int channel = pin.getAddress();
         try {
-            device.write(PCA9685A_LED0_ON_L + 4 * channel, (byte) 0x00);
-            device.write(PCA9685A_LED0_ON_H + 4 * channel, (byte) 0x00);
+            device.write(PCA9685A_LED0_ON_L  + 4 * channel, (byte) 0x00);
+            device.write(PCA9685A_LED0_ON_H  + 4 * channel, (byte) 0x00);
             device.write(PCA9685A_LED0_OFF_L + 4 * channel, (byte) 0x00);
             device.write(PCA9685A_LED0_OFF_H + 4 * channel, (byte) 0x10); // set bit 4 to high
         } catch (IOException e) {
@@ -298,7 +299,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     }
 
     private void validateFrequency(BigDecimal frequency) {
-        if (frequency.compareTo(MIN_FREQUENCY) == -1 || frequency.compareTo(MAX_FREQUENCY) == 1) {
+        if (frequency.compareTo(MIN_FREQUENCY) < 0 || frequency.compareTo(MAX_FREQUENCY) > 0) {
             throw new ValidationException("Frequency [" + frequency + "] must be between 40.0 and 1000.0 Hz.");
         }
     }
@@ -319,7 +320,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     }
 
     private void validatePin(Pin pin, int onPosition, int offPosition) {
-        if (hasPin(pin) == false) {
+        if (!hasPin(pin)) {
             throw new InvalidPinException(pin);
         }
         PinMode mode = getMode(pin);
@@ -338,10 +339,10 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
      * @return [0]: onValue, [1]: offValue
      */
     public int[] getPwmOnOffValues(Pin pin) {
-        if (hasPin(pin) == false) {
+        if (!hasPin(pin)) {
             throw new InvalidPinException(pin);
         }
-        int pwmValues[] = {
+        int[] pwmValues = {
                 getPinCache(pin).getPwmOnValue(),
                 getPinCache(pin).getPwmOffValue()};
         return pwmValues;

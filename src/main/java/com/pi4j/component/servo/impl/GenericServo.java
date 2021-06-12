@@ -39,6 +39,7 @@ import com.pi4j.io.gpio.exception.ValidationException;
 
 /**
  * @author Christian Wehrli
+ * @author Hanns Holger Rutz
  */
 public class GenericServo extends ComponentBase implements Servo {
 
@@ -46,16 +47,20 @@ public class GenericServo extends ComponentBase implements Servo {
         LEFT, RIGHT
     }
 
-    public static final float PWM_MIN = 900; // in micro seconds
+    public static final float PWM_MIN     =  900; // in micro seconds
     public static final float PWM_NEUTRAL = 1500; // in micro seconds
-    public static final float PWM_MAX = 2100; // in micro seconds
+    public static final float PWM_MAX     = 2100; // in micro seconds
 
     private ServoDriver servoDriver;
+
     private float position;
+
     private int pwmDuration;
-    private float pwmDurationEndPointLeft = -1;
-    private float pwmDurationNeutral = -1;
-    private float pwmDurationEndPointRight = -1;
+
+    private float pwmDurationEndPointLeft  = -1;    // set in `init`
+    private float pwmDurationNeutral       = -1;    // set in `init`
+    private float pwmDurationEndPointRight = -1;    // set in `init`
+
     private boolean isReverse = false;
 
     public GenericServo(ServoDriver servoDriver, String name) {
@@ -65,7 +70,7 @@ public class GenericServo extends ComponentBase implements Servo {
     public GenericServo(ServoDriver servoDriver, String name, Map<String, String> properties) {
         setServoDriver(servoDriver);
         setName(name);
-        if (properties != null && properties.isEmpty() == false) {
+        if (properties != null && !properties.isEmpty()) {
             for (String key : properties.keySet()) {
                 setProperty(key, properties.get(key));
             }
@@ -86,7 +91,8 @@ public class GenericServo extends ComponentBase implements Servo {
 
     @Override
     public void setPosition(float position) {
-        this.position = validatePosition(position);
+        validatePosition(position);
+        this.position = position;
         pwmDuration = calculatePwmDuration(position);
         servoDriver.setServoPulseWidth(pwmDuration);
     }
@@ -112,10 +118,10 @@ public class GenericServo extends ComponentBase implements Servo {
     }
 
     protected void init() {
-        pwmDurationEndPointLeft = calculateEndPointPwmDuration(Orientation.LEFT);
-        pwmDurationEndPointRight = calculateEndPointPwmDuration(Orientation.RIGHT);
-        pwmDurationNeutral = calculateNeutralPwmDuration();
-        isReverse = Boolean.parseBoolean(getProperty(PROP_IS_REVERSE, PROP_IS_REVERSE_DEFAULT));
+        pwmDurationEndPointLeft     = calculateEndPointPwmDuration(Orientation.LEFT);
+        pwmDurationEndPointRight    = calculateEndPointPwmDuration(Orientation.RIGHT);
+        pwmDurationNeutral          = calculateNeutralPwmDuration();
+        isReverse                   = Boolean.parseBoolean(getProperty(PROP_IS_REVERSE, PROP_IS_REVERSE_DEFAULT));
     }
 
     float calculateEndPointPwmDuration(Orientation orientation) {
@@ -137,7 +143,6 @@ public class GenericServo extends ComponentBase implements Servo {
         } else {
             calculatedPwmDuration = calculateNeutralPwmDuration() + ((PWM_MAX - PWM_NEUTRAL) / 150 * endPointValue);
         }
-
 
         if (calculatedPwmDuration < PWM_MIN) {
             result = PWM_MIN;
@@ -162,19 +167,19 @@ public class GenericServo extends ComponentBase implements Servo {
      * @param position value between -100 and +100%
      * @return pwm pulse duration in servo driver resolution
      */
-    int calculatePwmDuration(float position) {
+    public int calculatePwmDuration(float position) {
         float result;
         if (isReverse) {
             position = -position;
         }
         if (position < 0) {
-            result = (int)(pwmDurationNeutral + (pwmDurationNeutral - pwmDurationEndPointLeft) * position / 100.00);
+            result = (int) (pwmDurationNeutral + (pwmDurationNeutral - pwmDurationEndPointLeft)  * position / 100.00);
         } else if (position > 0) {
-            result = (int)(pwmDurationNeutral + (pwmDurationEndPointRight - pwmDurationNeutral) * position / 100.00);
+            result = (int) (pwmDurationNeutral + (pwmDurationEndPointRight - pwmDurationNeutral) * position / 100.00);
         } else {
-            result = (int)pwmDurationNeutral;
+            result = (int) pwmDurationNeutral;
         }
-        return (int)((result * servoDriver.getServoPulseResolution()) / 1000);
+        return (int) ((result * servoDriver.getServoPulseResolution()) / 1000);
     }
 
     @Override
@@ -191,24 +196,24 @@ public class GenericServo extends ComponentBase implements Servo {
     //------------------------------------------------------------------------------------------------------------------
     // Validator
     //------------------------------------------------------------------------------------------------------------------
-    private float validateEndPoint(float endPoint, String propertyName) {
+    private void validateEndPoint(float endPoint, String propertyName) {
         if (endPoint < Servo.END_POINT_MIN || endPoint > Servo.END_POINT_MAX) {
-            throw new ValidationException("Value of property [" + propertyName + "] must be between " + Servo.END_POINT_MIN + " and " + Servo.END_POINT_MAX + " but is [" + endPoint + "]");
+            throw new ValidationException("Value of property [" + propertyName + "] must be between " +
+                    Servo.END_POINT_MIN + " and " + Servo.END_POINT_MAX + " but is [" + endPoint + "]");
         }
-        return endPoint;
     }
 
-    private float validateSubtrim(float subtrim, String propertyName) {
+    private void validateSubtrim(float subtrim, String propertyName) {
         if (subtrim < Servo.SUBTRIM_MAX_LEFT || subtrim > Servo.SUBTRIM_MAX_RIGHT) {
-            throw new ValidationException("Value of property [" + propertyName + "] must be between " + Servo.SUBTRIM_MAX_LEFT + " and +" + Servo.SUBTRIM_MAX_RIGHT + " but is [" + subtrim + "]");
+            throw new ValidationException("Value of property [" + propertyName + "] must be between " +
+                    Servo.SUBTRIM_MAX_LEFT + " and +" + Servo.SUBTRIM_MAX_RIGHT + " but is [" + subtrim + "]");
         }
-        return subtrim;
     }
 
-    private float validatePosition(float position) {
+    private void validatePosition(float position) {
         if (position < Servo.POS_MAX_LEFT || position > Servo.POS_MAX_RIGHT) {
-            throw new ValidationException("Position [" + position + "] must be between " + Servo.POS_MAX_LEFT + "(%) and +" + Servo.POS_MAX_RIGHT + "(%) but is [" + position + "]");
+            throw new ValidationException("Position [" + position + "] must be between " + Servo.POS_MAX_LEFT +
+                    "(%) and +" + Servo.POS_MAX_RIGHT + "(%) but is [" + position + "]");
         }
-        return position;
     }
 }

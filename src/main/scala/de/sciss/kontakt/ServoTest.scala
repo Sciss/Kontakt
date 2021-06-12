@@ -51,7 +51,7 @@ object ServoTest {
         validate = x => x >= 0 && x < 16
       )
       val angle: Opt[Double] = opt(required = true, default = Some(default.angle),
-        descr = s"Target servo angle (default: ${default.angle})."
+        descr = s"Target servo angle -100% to +100% (default: ${default.angle})."
       )
 
       verify()
@@ -65,7 +65,7 @@ object ServoTest {
   }
 
   def run(config: Config): Unit = {
-    println("--1")
+    println("ServoTest")
     val gpioProvider  = createProvider()
     val gpio          = GpioFactory.getInstance
     val pin = config.channel match {
@@ -90,8 +90,11 @@ object ServoTest {
     /* val pin = */ gpio.provisionPwmOutputPin(gpioProvider, pin, servoName)
     val servoProvider = new PCA9685GpioServoProvider(gpioProvider)
     val servo         = new GenericServo(servoProvider.getServoDriver(pin), servoName)
-    servo.setPosition(config.angle.toFloat)
-    println("--2")
+    val pos           = config.angle.toFloat
+    val pwmDuration   = servo.calculatePwmDuration(pos);
+    println(s"position $pos corresponds to pwm duration $pwmDuration")
+    servo.setPosition(pos)
+    println("Ok")
   }
 
   def createProvider(): PCA9685GpioProvider = {
