@@ -205,7 +205,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         if (onPosition == offPosition) {
             throw new ValidationException("ON [" + onPosition + "] and OFF [" + offPosition + "] values must be different.");
         }
-        System.out.println("setPwm(_, " + onPosition + ", " + offPosition + ")");
+        // System.out.println("setPwm(_, " + onPosition + ", " + offPosition + ")");
         try {
             device.write(PCA9685A_LED0_ON_L  + 4 * channel, (byte) (onPosition & 0xFF));
             device.write(PCA9685A_LED0_ON_H  + 4 * channel, (byte) (onPosition >> 8));
@@ -249,7 +249,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     public void setAlwaysOff(Pin pin) {
         final int pwmOnValue  = 0x0000;
         final int pwmOffValue = 0x1000;
-        validatePin(pin, pwmOnValue, pwmOffValue);
+        final boolean live = !isShutdown();
+        if (live) validatePin(pin, pwmOnValue, pwmOffValue);
         final int channel = pin.getAddress();
         try {
             device.write(PCA9685A_LED0_ON_L  + 4 * channel, (byte) 0x00);
@@ -259,7 +260,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         } catch (IOException e) {
             throw new RuntimeException("Error while trying to set channel [" + channel + "] always OFF.", e);
         }
-        cachePinValues(pin, pwmOnValue, pwmOffValue);
+        if (live) cachePinValues(pin, pwmOnValue, pwmOffValue);
     }
 
     public BigDecimal getFrequency() {
@@ -331,8 +332,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     }
 
     private void cachePinValues(Pin pin, int onPosition, int offPosition) {
-        getPinCache(pin).setPwmOnValue(onPosition);
-        getPinCache(pin).setPwmOffValue(offPosition);
+        getPinCache(pin).setPwmOnValue  (onPosition );
+        getPinCache(pin).setPwmOffValue (offPosition);
     }
 
     /**
@@ -345,7 +346,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         }
         int[] pwmValues = {
                 getPinCache(pin).getPwmOnValue(),
-                getPinCache(pin).getPwmOffValue()};
+                getPinCache(pin).getPwmOffValue()
+        };
         return pwmValues;
     }
 
@@ -361,7 +363,7 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
     @Override
     protected PCA9685GpioProviderPinCache getPinCache(Pin pin) {
         PCA9685GpioProviderPinCache pc = cache[pin.getAddress()];
-        if(pc == null){
+        if (pc == null) {
             pc = cache[pin.getAddress()] = new PCA9685GpioProviderPinCache(pin);
         }
         return pc;
@@ -382,8 +384,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         if (isShutdown()) {
             return;
         }
-        reset();
         super.shutdown();
+        reset();
         try {
             // if we are the owner of the I2C bus, then close it
             if(i2cBusOwner) {
