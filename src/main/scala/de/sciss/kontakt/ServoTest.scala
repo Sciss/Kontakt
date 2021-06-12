@@ -44,6 +44,7 @@ object ServoTest {
                      pwmMin    : Int            = 560,
                      pwmMax    : Int            = 2600,
                      freq      : Double         = 50.0,
+                     waitMs    : Int            = 1000,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -78,6 +79,12 @@ object ServoTest {
         descr = s"Oscillator frequency in Hz (default: ${default.freq}).",
         validate = x => x >= 0.0 && x <= 2000.0,
       )
+      val waitMs: Opt[Int] = opt(
+        name    = "wait",
+        default = Some(default.waitMs),
+        descr = s"Wait time in milliseconds before quite (default: ${default.waitMs}).",
+        validate = x => x >= 0,
+      )
 
       verify()
       val config: Config = Config(
@@ -87,6 +94,7 @@ object ServoTest {
         pwmMin    = pwmMin(),
         pwmMax    = pwmMax(),
         freq      = freq(),
+        waitMs    = waitMs(),
       )
     }
 
@@ -142,8 +150,10 @@ object ServoTest {
       case None =>
     }
 
-//    println("Wait")
-//    Thread.sleep(4000)
+    if (config.waitMs > 0) {
+      println("Wait")
+      Thread.sleep(config.waitMs)
+    }
     println("Ok")
   }
 
