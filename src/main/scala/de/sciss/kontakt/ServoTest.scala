@@ -13,10 +13,11 @@
 
 package de.sciss.kontakt
 
-import com.pi4j.component.servo.impl.{GenericServo, PCA9685GpioServoProvider}
+import com.pi4j.component.servo.impl.PCA9685GpioServoProvider
 import com.pi4j.gpio.extension.pca.{PCA9685GpioProvider, PCA9685Pin}
 import com.pi4j.io.gpio.GpioFactory
 import com.pi4j.io.i2c.{I2CBus, I2CFactory}
+import de.sciss.numbers.Implicits.doubleNumberWrapper
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 /*
@@ -40,6 +41,9 @@ object ServoTest {
                      channel   : Int = 0,
                      angle     : Option[Double] = None,
                      pwm       : Option[Int]    = None,
+                     pwmMin    : Int            = 560,
+                     pwmMax    : Int            = 2600,
+                     freq      : Double         = 50.0,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -51,11 +55,28 @@ object ServoTest {
         descr = s"Servo controller channel 0 to 15 (default: ${default.channel}).",
         validate = x => x >= 0 && x < 16
       )
-      val angle: Opt[Double] = opt(required = false,
-        descr = "Target servo angle -100% to +100%."
+      val angle: Opt[Double] = opt(
+        descr = "Target servo angle 0 to 180 degrees.",
+        validate = x => x >= 0 && x <= 180,
       )
-      val pwm: Opt[Int] = opt(required = false,
-        descr = "PWM value."
+      val pwm: Opt[Int] = opt(
+        descr = "PWM value in microseconds.",
+        validate = x => x >= 0 && x <= 5000,
+      )
+      val pwmMin: Opt[Int] = opt(
+        default = Some(default.pwmMin),
+        descr = s"PWM minimum value in microseconds (default: ${default.pwmMin}).",
+        validate = x => x >= 0 && x <= 5000,
+      )
+      val pwmMax: Opt[Int] = opt(
+        default = Some(default.pwmMax),
+        descr = s"PWM maximum value in microseconds (default: ${default.pwmMax}).",
+        validate = x => x >= 0 && x <= 5000,
+      )
+      val freq: Opt[Double] = opt(
+        default = Some(default.freq),
+        descr = s"Oscillator frequency in Hz (default: ${default.freq}).",
+        validate = x => x >= 0.0 && x <= 2000.0,
       )
 
       verify()
@@ -63,6 +84,9 @@ object ServoTest {
         channel   = channel(),
         angle     = angle.toOption,
         pwm       = pwm  .toOption,
+        pwmMin    = pwmMin(),
+        pwmMax    = pwmMax(),
+        freq      = freq(),
       )
     }
 
@@ -71,7 +95,7 @@ object ServoTest {
 
   def run(config: Config): Unit = {
     println("ServoTest")
-    val gpioProvider  = createProvider()
+    val gpioProvider  = createProvider(config.freq)
     println(s"period duration in microseconds: ${gpioProvider.getPeriodDurationMicros}")
     val gpio          = GpioFactory.getInstance
     val pin = config.channel match {
@@ -96,14 +120,16 @@ object ServoTest {
     /* val pin = */ gpio.provisionPwmOutputPin(gpioProvider, pin, servoName)
     val servoProvider = new PCA9685GpioServoProvider(gpioProvider)
     val servoDriver   = servoProvider.getServoDriver(pin)
-    val servo         = new GenericServo(servoDriver, servoName)
+
+    def calculatePwmDuration(angle: Double): Int =
+      (angle.clip(0.0, 180.0).linLin(0.0, 180.0, config.pwmMin, config.pwmMax) + 0.5).toInt
 
     config.angle match {
-      case Some(posD) =>
-        val pos           = posD.toFloat
-        val pwmDuration   = servo.calculatePwmDuration(pos)
-        println(s"position $pos corresponds to pwm duration $pwmDuration")
-        servo.setPosition(pos)
+      case Some(a) =>
+        val pwmDuration = calculatePwmDuration(a)
+        println(s"angle $a corresponds to pwm duration $pwmDuration")
+//        servo.setPosition(pos)
+        servoDriver.setServoPulseWidth(pwmDuration)
 
       case None =>
     }
@@ -121,8 +147,8 @@ object ServoTest {
     println("Ok")
   }
 
-  def createProvider(): PCA9685GpioProvider = {
+  def createProvider(freq: Double): PCA9685GpioProvider = {
     val bus = I2CFactory.getInstance(I2CBus.BUS_1)
-    new PCA9685GpioProvider(bus, 0x40, new java.math.BigDecimal(50.0))
+    new PCA9685GpioProvider(bus, 0x40, new java.math.BigDecimal(freq))
   }
 }
