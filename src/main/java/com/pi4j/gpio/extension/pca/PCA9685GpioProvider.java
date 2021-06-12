@@ -382,8 +382,8 @@ public class PCA9685GpioProvider extends GpioProviderBase implements GpioProvide
         if (isShutdown()) {
             return;
         }
-        super.shutdown();
         reset();
+        super.shutdown();
         try {
             // if we are the owner of the I2C bus, then close it
             if(i2cBusOwner) {

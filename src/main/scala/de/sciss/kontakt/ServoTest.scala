@@ -142,8 +142,8 @@ object ServoTest {
       case None =>
     }
 
-    println("Wait")
-    Thread.sleep(4000)
+//    println("Wait")
+//    Thread.sleep(4000)
     println("Ok")
   }
 
