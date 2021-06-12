@@ -110,10 +110,12 @@ object ServoTest {
     config.pwm match {
       case Some(v) =>
         servoDriver.setServoPulseWidth(v)
-        
+
       case None =>
     }
 
+    println("Wait")
+    Thread.sleep(4000)
     println("Ok")
   }
 
