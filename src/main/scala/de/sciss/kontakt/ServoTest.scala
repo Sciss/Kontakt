@@ -20,22 +20,6 @@ import com.pi4j.io.i2c.{I2CBus, I2CFactory}
 import de.sciss.numbers.Implicits.doubleNumberWrapper
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
-/*
-
-  to check:
-
---1
---2
-Exception in thread "Thread-0" java.lang.NullPointerException
-	at com.pi4j.gpio.extension.pca.PCA9685GpioProvider.validatePin(PCA9685GpioProvider.java:327)
-	at com.pi4j.gpio.extension.pca.PCA9685GpioProvider.setAlwaysOff(PCA9685GpioProvider.java:250)
-	at com.pi4j.gpio.extension.pca.PCA9685GpioProvider.reset(PCA9685GpioProvider.java:355)
-	at com.pi4j.gpio.extension.pca.PCA9685GpioProvider.shutdown(PCA9685GpioProvider.java:384)
-	at com.pi4j.io.gpio.impl.GpioControllerImpl.shutdown(GpioControllerImpl.java:1056)
-	at com.pi4j.io.gpio.impl.GpioControllerImpl$ShutdownHook.run(GpioControllerImpl.java:991)
-
-
- */
 object ServoTest {
   case class Config(
                      channel   : Int = 0,
