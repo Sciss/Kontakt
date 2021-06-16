@@ -100,21 +100,29 @@ object Window {
   }
 
   def run(config: Config): Unit = {
+    implicit val as: ActorSystem = ActorSystem()
+    ???
+  }
+
+  def appName   : String = "kontakt"
+  def appAuthor : String = "de.sciss"
+
+  /** Fetches a pair of data -- the most recent,
+    * and the one a month earlier
+    */
+  def fetchPair(config: Config)(implicit as: ActorSystem): Unit = {
     import config._
 
     val appDirs     = AppDirsFactory.getInstance
-    val configBase  = appDirs.getUserConfigDir("kontakt", /* version */ null, /* author */ "de.sciss")
-
-    implicit val as: ActorSystem = ActorSystem()
+    val configBase  = appDirs.getUserConfigDir(appName, /* version */ null, /* author */ appAuthor)
+    val cacheBase   = appDirs.getUserCacheDir (appName, /* version */ null, /* author */ appAuthor)
 
     val statusFut = for {
       app   <- Mastodon.createApp(baseURI = baseURI, clientName = "kontakt_tooter",
         scopes = Set(Scope.Read), storageLoc = configBase)
       token <- app.login(username = username, password = password)
-      res   <- {
-        app.Accounts.fetchStatuses(accountId, sinceId = Some(Id("106415590406823008")),
-          onlyMedia = true, excludeReplies = true)(token)
-      }
+      res   <- app.Accounts.fetchStatuses(accountId, sinceId = Some(Id("106415590406823008")),
+        onlyMedia = true, excludeReplies = true)(token)
     } yield {
       res
     }
