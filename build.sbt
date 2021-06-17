@@ -30,6 +30,7 @@ lazy val root = project.in(file("."))
       "de.sciss"      %% "fileutil"             % deps.main.fileUtil,   // utility functions
       "de.sciss"      %% "numbers"              % deps.main.numbers,    // numeric utilities
       "de.sciss"      %% "scaladon"             % deps.main.scaladon,   // Mastodon client
+      "de.sciss"      %% "serial"               % deps.main.serial,     // Serialization
       "mpicbg"        %  "mpicbg"               % deps.main.mpicbg,     // 2D transforms
       "net.harawata"  %  "appdirs"              % deps.main.appDirs,    // finding standard directories
       "net.imagej"    %  "ij"                   % deps.main.imageJ,     // analyzing image data
@@ -50,6 +51,7 @@ lazy val deps = new {
     val scaladon    = "0.5.0-SNAPSHOT"
     val scalaSwing  = "3.0.0"
     val scallop     = "4.0.2"
+    val serial      = "2.0.1"
   }
 }
 

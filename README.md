@@ -3,7 +3,7 @@
 # Kontakt
 
 This repository contains code for an ongoing art project. See
-[Research Catalogue](https://www.researchcatalogue.net/view/1154218/1154219)
+[Research Catalogue](https://www.researchcatalogue.net/view/1154218/1294281)
 
 (C)opyright 2021 by Hanns Holger Rutz. All rights reserved. This project is released under the
 [GNU Affero General Public License](https://git.iem.at/sciss/WritingSimultan/blob/main/LICENSE) v3+ and
