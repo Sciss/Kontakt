@@ -155,7 +155,7 @@ object Window {
     val configBase  = appDirs.getUserConfigDir(appName, /* version */ null, /* author */ appAuthor)
 
     for {
-      app   <- Mastodon.createApp(baseURI = baseURI, clientName = "kontakt_tooter",
+      app <- Mastodon.createApp(baseURI = baseURI, clientName = "kontakt_tooter",
         scopes = Set(Scope.Read), storageLoc = configBase)
       token <- app.login(username = username, password = password)
     } yield
@@ -255,7 +255,7 @@ object Window {
     data.foreach(println)
 
     data.headOption.foreach { data =>
-      val f         = File.createTempFile("tmp", ".jpg")
+      val f         = java.io.File.createTempFile("tmp", ".jpg")
       val futFile   = downloadFile(data.imagePath, f)
       /*val ioRes =*/ Await.result(futFile, Duration(4, TimeUnit.MINUTES))
       // println(s"ioRes = $ioRes")

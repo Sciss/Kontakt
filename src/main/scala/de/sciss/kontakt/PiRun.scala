@@ -19,11 +19,11 @@ import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
 import java.text.SimpleDateFormat
-import java.time.OffsetDateTime
+import java.time.{Duration, OffsetDateTime}
 import java.util.concurrent.TimeUnit
 import java.util.{Date, Locale}
 import scala.concurrent.Await
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration.{Duration => SDuration}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
@@ -215,7 +215,18 @@ object PiRun {
 
       if (hasCrop && c.toot) {
         println("Tooting photo...")
-        val text = s"The time is $odt - we're still trying to make contact..."
+        val dateStr   = odt.withNano(0).toString
+        val dateZero  = OffsetDateTime.parse("2021-06-19T04:00:00+02:00") // begin on June 19th, 2021
+        val dayIdx    = Duration.between(dateZero, odt).toDays.toInt
+        val annot     = try {
+          io.Source.fromInputStream(getClass.getResourceAsStream("/annotations.txt"), "UTF-8").getLines().drop(dayIdx).next()
+        } catch {
+          case NonFatal(ex) =>
+            Console.err.println("Error fetching text fragment:")
+            ex.printStackTrace()
+            "we're still trying to make contact..."
+        }
+        val text      = s"The time is $dateStr - $annot"
         val cToot = TootPhoto.Config(
           username  = c.username,
           password  = c.password,
@@ -225,7 +236,7 @@ object PiRun {
         )
 
         val futToot = TootPhoto.run(cToot)
-        val trToot  = Try { Await.ready(futToot, Duration(60, TimeUnit.SECONDS)) }
+        val trToot  = Try { Await.ready(futToot, SDuration(60, TimeUnit.SECONDS)) }
         val resToot: Try[Status] = trToot.flatMap { _ => futToot.value.get }
 
         resToot match {
