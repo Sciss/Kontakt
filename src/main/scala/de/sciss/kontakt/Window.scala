@@ -375,9 +375,11 @@ object Window {
     } else {
       t0
     }
-    // XXX TODO what's the policy here for Mastodon? Why they encode `&apos;` ?
-    val u0 = StringEscapeUtils.unescapeXml(t)
-    StringEscapeUtils.unescapeHtml4(u0)
+    // cf. https://github.com/tootsuite/documentation/issues/884
+    // cf. https://stackoverflow.com/questions/21883496/how-to-decode-xhtml-and-or-html5-entities-in-java
+//    val u0 = StringEscapeUtils.unescapeXml(t)
+//    u0 // StringEscapeUtils.unescapeHtml4(u0)
+    StringEscapeUtils.unescapeHtml4(t.replace("&apos;", "\'"))
   }
 
   // note: also fails if entries is empty
@@ -391,7 +393,7 @@ object Window {
 //        val imgSc     = image.getScaledInstance(config.imgExtent, config.imgExtent, Image.SCALE_SMOOTH)
         val sep     = " - "
         val plain   = htmlToPlain(e.content)
-        println(s"HTML '${e.content}' -> plain '$plain'")
+//        println(s"HTML '${e.content}' -> plain '$plain'")
         val sepIdx  = plain.indexOf(sep)
         val text    = if (sepIdx < 0) plain else plain.substring(sepIdx + sep.length)
         Content(textTop = text, textBottom = text, image = image)
