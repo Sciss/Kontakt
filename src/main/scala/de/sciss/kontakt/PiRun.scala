@@ -14,6 +14,7 @@
 package de.sciss.kontakt
 
 import de.sciss.file._
+import de.sciss.kontakt.Common.{fullVersion, shutdown}
 import de.sciss.scaladon.Status
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
@@ -27,6 +28,8 @@ import scala.concurrent.duration.{Duration => SDuration}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
+/** This is the code for observing the experiment, taking and uploading photos.
+  */
 object PiRun {
   case class Config(
                    username       : String  = "user",
@@ -44,18 +47,7 @@ object PiRun {
                    shutdown       : Boolean = true,
                    )
 
-  private def buildInfString(key: String): String = try {
-    val clazz = Class.forName("de.sciss.kontakt.BuildInfo")
-    val m     = clazz.getMethod(key)
-    m.invoke(null).toString
-  } catch {
-    case NonFatal(_) => "?"
-  }
-
   final def name          : String = "Kontakt"
-  final def version       : String = buildInfString("version")
-  final def builtAt       : String = buildInfString("builtAtString")
-  final def fullVersion   : String = s"v$version, built $builtAt"
   final def nameAndVersion: String = s"$name $fullVersion"
 
   def main(args: Array[String]): Unit = {
@@ -96,9 +88,15 @@ object PiRun {
       val pumpTimeOut: Opt[Int] = opt("pump-timeout", default = Some(default.pumpTimeOut),
         descr = s"Maximum duration in seconds to wait for the irrigation to finish (default: ${default.pumpTimeOut})."
       )
-      val noPump: Opt[Boolean] = opt("no-pump", descr = "Disable irrigation.", default = Some(false))
-      val noToot: Opt[Boolean] = opt("no-toot", descr = "Disable Mastodon."  , default = Some(false))
-      val noShutdown: Opt[Boolean] = opt("no-shutdown", descr = "Do not shutdown Pi after compleition.", default = Some(false))
+      val noPump: Opt[Boolean] = opt("no-pump", descr = "Disable irrigation.",
+        default = Some(!default.pump)
+      )
+      val noToot: Opt[Boolean] = opt("no-toot", descr = "Disable Mastodon.",
+        default = Some(!default.toot)
+      )
+      val noShutdown: Opt[Boolean] = opt("no-shutdown", descr = "Do not shutdown Pi after completion.",
+        default = Some(!default.shutdown)
+      )
 
       verify()
       val config: Config = Config(
@@ -261,11 +259,6 @@ object PiRun {
     } else {
       sys.exit()
     }
-  }
-
-  def shutdown(): Unit = {
-    import sys.process._
-    Seq("sudo", "shutdown", "now").!
   }
 
   def stampedFile(folder: File, pre: String, ext: String, date: Date): File = {

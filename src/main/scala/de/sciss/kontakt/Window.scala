@@ -19,6 +19,7 @@ import akka.http.scaladsl.model.HttpRequest
 import akka.stream.IOResult
 import akka.stream.scaladsl.FileIO
 import de.sciss.file._
+import de.sciss.kontakt.Common.fullVersion
 import de.sciss.scaladon.Mastodon.Scope
 import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
@@ -32,7 +33,7 @@ import java.awt.image.BufferedImage
 import java.awt.{Color, EventQueue, Font, RenderingHints, Toolkit}
 import java.text.AttributedString
 import java.time.ZonedDateTime
-import java.util.Locale
+import java.util.{Date, Locale}
 import javax.imageio.ImageIO
 import javax.swing.{AbstractAction, JComponent, KeyStroke, SwingUtilities}
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -42,11 +43,15 @@ import scala.swing.{BoxPanel, Component, Dimension, Graphics2D, MainFrame, Orien
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
+/** This is the code for the physical installation at Reagenz.
+  */
 object Window {
   case class Config(
                      username   : String  = "user",
                      password   : String  = "pass",
                      verbose    : Boolean = false,
+                     initDelay  : Int     =   120,
+                     shutdown   : Boolean = true,
                      baseURI    : String  = "botsin.space",
                      accountId  : Id      = Id("304274"),
                      imgExtent  : Int     = 816,
@@ -126,6 +131,9 @@ object Window {
       val password: Opt[String] = opt("pass", short = 'p', /*required = true,*/ default = Some(default.password),
         descr = "Mastodon bot password."
       )
+      val initDelay: Opt[Int] = opt("init-delay", default = Some(default.initDelay),
+        descr = s"Initial delay in seconds (to make sure date-time is synced) (default: ${default.initDelay})."
+      )
       val baseURI: Opt[String] = opt("base-uri", short = 'b', default = Some(default.baseURI),
         descr = s"Mastodon instance base URI (default: ${default.baseURI})."
       )
@@ -167,11 +175,15 @@ object Window {
       val crossEyed: Opt[Boolean] = opt("cross-eyed", default = Some(default.crossEyed),
         descr = "Render for cross-eyed viewing instead of stereoscopic lenses"
       )
+      val noShutdown: Opt[Boolean] = opt("no-shutdown", descr = "Do not shutdown Pi after completion.",
+        default = Some(!default.shutdown)
+      )
 
       verify()
       val config: Config = Config(
         username    = username(),
         password    = password(),
+        initDelay   = initDelay(),
         verbose     = verbose(),
         baseURI     = baseURI(),
         accountId   = accountId(),
@@ -186,6 +198,7 @@ object Window {
         crossHair   = !noCrossHair(),
         fontSize    = fontSize(),
         crossEyed   = crossEyed(),
+        shutdown    = !noShutdown(),
       )
     }
 
@@ -209,7 +222,19 @@ object Window {
     }
   }
 
+  final def name          : String = "Kontakt (window)"
+  final def nameAndVersion: String = s"$name $fullVersion"
+
   def run()(implicit config: Config): Unit = {
+    println(nameAndVersion)
+
+    val initDelayMS = math.max(0, config.initDelay) * 1000L
+    if (initDelayMS > 0) {
+      println(s"Waiting for ${config.initDelay} seconds.")
+      Thread.sleep(initDelayMS)
+      println(s"The date and time: ${new Date()}")
+    }
+
     implicit val as: ActorSystem = ActorSystem()
     var view = Option.empty[View]
     if (config.hasView) Swing.onEDT {
@@ -504,10 +529,12 @@ object Window {
                                   )(implicit config: Config)
     extends Component {
 
-    import config.{panelWidth, panelHeight, imgExtent, imgCrop, crossHair, textShift, textXPad, textYPad, crossEyed}
+    import config.{crossEyed, crossHair, imgCrop, imgExtent, panelHeight, panelWidth, textXPad, textYPad}
 
     opaque        = true
     preferredSize = new Dimension(panelWidth, panelHeight)
+
+    private val hoverShift = if (alignRight ^ crossEyed) config.textShift else -config.textShift
 
     private var _data = Option.empty[Content]
 
@@ -523,6 +550,8 @@ object Window {
     private val imgY = (pMin - imgExtent)/2 + (pMax - pMin)
 
 //    listenTo(mouse.clicks)
+
+    private val colrHover = new Color(0x7F000000, true)
 
     override protected def paintComponent(g: Graphics2D): Unit = {
       super.paintComponent(g)
@@ -549,8 +578,8 @@ object Window {
           val as        = new AttributedString(text)
           as.addAttribute(TextAttribute.FONT, g.getFont)  // lbm ignores Graphics2D font!
           val lbm       = new LineBreakMeasurer(as.getIterator, frc)
-          val txtX0     = imgX + textXPad + (if (alignRight ^ crossEyed) textShift else -textShift)
-          val maxTxtW0  = imgExtent - textXPad * 2
+          val txtX0     = imgX + textXPad + hoverShift
+          val maxTxtW0  = (imgExtent - textXPad * 2).toFloat
 
           def count(w: Float): (Int, Float) = {
             var lineCnt = 0
@@ -567,7 +596,7 @@ object Window {
           def render(lineCnt: Int, maxTxtW: Float): Unit = {
             val txtX = txtX0 + (maxTxtW0 - maxTxtW) * 0.5f
             val txtH = + fm.getHeight * lineCnt
-            g.setColor(new Color(0x7F000000, true))
+            g.setColor(colrHover)
             val hoverH = txtH + textYPad * 2
             val hoverY = if (isBottom) imgY + imgExtent - hoverH else imgY
             g.fillRect(imgX, hoverY, imgExtent, hoverH)
@@ -603,7 +632,17 @@ object Window {
         renderText(true )
 
         if (crossHair) {
-          // XXX TODO
+          val cx = imgX + imgExtent/2 + hoverShift
+          val cy = imgY + imgExtent/2
+
+          def drawHair(cw: Int, ch: Int, colr: Color): Unit = {
+            g.setColor(colr)
+            g.fillRect(cx - cw, cy - ch, cw * 2, ch * 2)
+            g.fillRect(cx - ch, cy - cw, ch * 2, cw * 2)
+          }
+
+          drawHair(10, 3, colrHover)
+          drawHair( 8, 1, Color.white)
         }
       }
     }
