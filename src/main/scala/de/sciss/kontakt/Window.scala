@@ -46,10 +46,12 @@ object Window {
                      baseURI    : String  = "botsin.space",
                      accountId  : Id      = Id("304274"),
                      imgExtent  : Int     = 816,
+                     imgCrop    : Int     = 160,
                      panelWidth : Int     = 1920/2,
                      panelHeight: Int     = 1080,
                      hasView    : Boolean = true,
                      yShift     : Int     = 0,
+                     skipUpdate : Boolean = false,
                    )
 
   object Entry {
@@ -108,10 +110,10 @@ object Window {
       val verbose: Opt[Boolean] = opt("verbose", short = 'V', default = Some(default.verbose),
         descr = "Verbose printing."
       )
-      val username: Opt[String] = opt("user", short = 'u', required = true,
+      val username: Opt[String] = opt("user", short = 'u', /*required = true,*/ default = Some(default.username),
         descr = "Mastodon bot user name."
       )
-      val password: Opt[String] = opt("pass", short = 'p', required = true,
+      val password: Opt[String] = opt("pass", short = 'p', /*required = true,*/ default = Some(default.password),
         descr = "Mastodon bot password."
       )
       val baseURI: Opt[String] = opt("base-uri", short = 'b', default = Some(default.baseURI),
@@ -124,21 +126,32 @@ object Window {
         descr = s"Single image side length in pixels (default: ${default.imgExtent}).",
         validate = x => x >= 16 && x <= 1280
       )
+      val imgCrop: Opt[Int] = opt("crop", default = Some(default.imgCrop),
+        descr = s"Crop on each side of the image in pixels (default: ${default.imgCrop}).",
+        validate = x => x >= 0
+      )
       val yShift: Opt[Int] = opt("y-shift", default = Some(default.yShift),
         descr = s"Vertical shift in pixels (default: ${default.yShift}).",
       )
-      val noView: Opt[Boolean] = opt("no-view", default = Some(!default.hasView), descr = "Do not open window.")
+      val noView: Opt[Boolean] = opt("no-view", default = Some(!default.hasView),
+        descr = "Do not open window."
+      )
+      val skipUpdate: Opt[Boolean] = opt("skip-update", default = Some(default.skipUpdate),
+        descr = "Do not check online for updates."
+      )
 
       verify()
       val config: Config = Config(
-        username  = username(),
-        password  = password(),
-        verbose   = verbose(),
-        baseURI   = baseURI(),
-        accountId = accountId(),
-        imgExtent = imgExtent(),
-        hasView   = !noView(),
-        yShift    = yShift(),
+        username    = username(),
+        password    = password(),
+        verbose     = verbose(),
+        baseURI     = baseURI(),
+        accountId   = accountId(),
+        imgExtent   = imgExtent(),
+        imgCrop     = imgCrop(),
+        hasView     = !noView(),
+        yShift      = yShift(),
+        skipUpdate  = skipUpdate(),
       )
     }
 
@@ -152,12 +165,14 @@ object Window {
       view = Some(openView())
     }
 
-    val futAll = for {
-      li <- login()
-      entries <- {
-        implicit val _li: Login = li
+    val entriesFut = if (config.skipUpdate) readCache() else {
+      login().flatMap { implicit li =>
         updateEntries()
       }
+    }
+
+    val futAll = for {
+      entries <- entriesFut
       (cOld, cNew) <- fetchPair(entries)
     } yield {
       if (config.hasView) Swing.onEDT {
@@ -170,7 +185,7 @@ object Window {
     }
 
     futAll.onComplete {
-      case Success(_) => log("Updates completed")
+      case Success(_) => log(if (config.skipUpdate) "Entries read" else "Updates completed")
       case Failure(ex) =>
         Console.err.println("Update failed:")
         ex.printStackTrace()
@@ -352,7 +367,7 @@ object Window {
 
     private def mkSideView(isLeft: Boolean) =
       new ViewSideImpl(config.panelWidth, config.panelHeight, yShift = config.yShift,
-        imgExtent = config.imgExtent, alignRight = isLeft)
+        imgExtent = config.imgExtent, imgCrop = config.imgCrop, alignRight = isLeft)
 
     private val leftView  = mkSideView(isLeft = true  )
     private val rightView = mkSideView(isLeft = false )
@@ -406,7 +421,8 @@ object Window {
     })
   }
 
-  private final class ViewSideImpl(_width: Int, _height: Int, yShift: Int, imgExtent: Int, alignRight: Boolean)
+  private final class ViewSideImpl(_width: Int, _height: Int, yShift: Int, imgExtent: Int, imgCrop: Int,
+                                   alignRight: Boolean)
     extends Component {
 
     opaque        = true
@@ -434,7 +450,11 @@ object Window {
       _data.foreach { c =>
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
         g.setRenderingHint(RenderingHints.KEY_RENDERING     , RenderingHints.VALUE_RENDER_QUALITY       )
-        g.drawImage(c.image, imgX, imgY, imgExtent, imgExtent, peer)
+        val img = c.image
+//        g.drawImage(img, imgX, imgY, imgExtent, imgExtent, peer)
+        g.drawImage(img, /* dx1 */ imgX, /* dy1 */ imgY, /* dx2 */ imgX + imgExtent, /* dy2 */ imgY + imgExtent,
+          /* sx1 */ imgCrop, /* sy1 */ imgCrop, /* sx2 */ img.getWidth - imgCrop, /* sy2 */ img.getHeight - imgCrop,
+          peer)
       }
     }
   }
