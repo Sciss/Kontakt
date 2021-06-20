@@ -57,10 +57,11 @@ object Window {
                      yShift     : Int     = 0,
                      skipUpdate : Boolean = false,
                      crossHair  : Boolean = true,
-                     textShift  : Int     = 4,
+                     textShift  : Int     = 2, // 3, // 4,
                      textYPad   : Int     = 12,
                      textXPad   : Int     = 36,
                      fontSize   : Double  = 20.0,
+                     crossEyed  : Boolean = false,
                    )
 
   object Entry {
@@ -163,6 +164,9 @@ object Window {
       val noCrossHair: Opt[Boolean] = opt("no-cross-hair", default = Some(!default.crossHair),
         descr = "Do not draw cross hair."
       )
+      val crossEyed: Opt[Boolean] = opt("cross-eyed", default = Some(default.crossEyed),
+        descr = "Render for cross-eyed viewing instead of stereoscopic lenses"
+      )
 
       verify()
       val config: Config = Config(
@@ -181,6 +185,7 @@ object Window {
         skipUpdate  = skipUpdate(),
         crossHair   = !noCrossHair(),
         fontSize    = fontSize(),
+        crossEyed   = crossEyed(),
       )
     }
 
@@ -499,7 +504,7 @@ object Window {
                                   )(implicit config: Config)
     extends Component {
 
-    import config.{panelWidth, panelHeight, imgExtent, imgCrop, crossHair, textShift, textXPad, textYPad}
+    import config.{panelWidth, panelHeight, imgExtent, imgCrop, crossHair, textShift, textXPad, textYPad, crossEyed}
 
     opaque        = true
     preferredSize = new Dimension(panelWidth, panelHeight)
@@ -540,34 +545,57 @@ object Window {
         val frc = g.getFontRenderContext
 
         def renderText(isBottom: Boolean): Unit = {
-          val text    = if (isBottom) c.textBottom else c.textTop
-          val as      = new AttributedString(text)
+          val text      = if (isBottom) c.textBottom else c.textTop
+          val as        = new AttributedString(text)
           as.addAttribute(TextAttribute.FONT, g.getFont)  // lbm ignores Graphics2D font!
-          val lbm     = new LineBreakMeasurer(as.getIterator, frc)
-          val maxTxtW = imgExtent - textXPad * 2
-          val txtX    = imgX + textXPad
+          val lbm       = new LineBreakMeasurer(as.getIterator, frc)
+          val txtX0     = imgX + textXPad + (if (alignRight ^ crossEyed) textShift else -textShift)
+          val maxTxtW0  = imgExtent - textXPad * 2
 
-          var lineCnt = 0
-          while (lbm.getPosition < text.length) {
-            lbm.nextLayout(maxTxtW)
-            lineCnt += 1
+          def count(w: Float): (Int, Float) = {
+            var lineCnt = 0
+            var lastLineWidth = 0f
+            lbm.setPosition(0) // 'reset'
+            while (lbm.getPosition < text.length) {
+              val lay = lbm.nextLayout(w)
+              lastLineWidth = lay.getAdvance
+              lineCnt += 1
+            }
+            (lineCnt, lastLineWidth)
           }
 
-          val txtH = + fm.getHeight * lineCnt
-          g.setColor(new Color(0x7F000000, true))
-          val hoverH = txtH + textYPad * 2
-          val hoverY = if (isBottom) imgY + imgExtent - hoverH else imgY
-          g.fillRect(imgX, hoverY, imgExtent, hoverH)
+          def render(lineCnt: Int, maxTxtW: Float): Unit = {
+            val txtX = txtX0 + (maxTxtW0 - maxTxtW) * 0.5f
+            val txtH = + fm.getHeight * lineCnt
+            g.setColor(new Color(0x7F000000, true))
+            val hoverH = txtH + textYPad * 2
+            val hoverY = if (isBottom) imgY + imgExtent - hoverH else imgY
+            g.fillRect(imgX, hoverY, imgExtent, hoverH)
 
-          g.setColor(Color.white)
-          var txtY = (hoverY + textYPad + fm.getAscent).toFloat
-          lbm.setPosition(0)
-          while (lbm.getPosition < text.length) {
-            val lay = lbm.nextLayout(maxTxtW)
-            //          txtY += lay.getAscent
-            val dx = (maxTxtW - lay.getAdvance) * 0.5f
-            lay.draw(g, txtX + dx, txtY)
-            txtY += fm.getHeight // lay.getDescent + lay.getLeading
+            g.setColor(Color.white)
+            var txtY = (hoverY + textYPad + fm.getAscent).toFloat
+            lbm.setPosition(0) // 'reset'
+            while (lbm.getPosition < text.length) {
+              val lay = lbm.nextLayout(maxTxtW)
+              //          txtY += lay.getAscent
+              val dx = (maxTxtW - lay.getAdvance) * 0.5f
+              lay.draw(g, txtX + dx, txtY)
+              txtY += fm.getHeight // lay.getDescent + lay.getLeading
+            }
+          }
+
+          val (cnt0, w0)  = count(maxTxtW0)
+//          println(s"cnt0 $cnt0, last line ratio: ${maxTxtW0 / w0}")
+          if (cnt0 <= 1 || (maxTxtW0 / w0) < 1.8) {
+            render(cnt0, maxTxtW0)
+          } else {
+            // try better
+            val lastSpace   = maxTxtW0 - w0
+            val perLine     = lastSpace / cnt0
+            val maxTxtW1    = maxTxtW0 - perLine * 0.85f
+            val (cnt1, w1)   = count(maxTxtW1)
+//            println(s"cnt0 $cnt0 w0 $w0 maxTxtW0 $maxTxtW0, cnt1 $cnt1 w1 $w1 maxTxtW1 $maxTxtW1")
+            if (cnt1 == cnt0) render(cnt1, maxTxtW1) else render(cnt0, maxTxtW0)
           }
         }
 
