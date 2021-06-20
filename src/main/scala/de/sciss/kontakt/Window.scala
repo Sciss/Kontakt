@@ -27,8 +27,10 @@ import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
 import java.awt.event.{ActionEvent, InputEvent, KeyEvent}
+import java.awt.font.{LineBreakMeasurer, TextAttribute}
 import java.awt.image.BufferedImage
 import java.awt.{Color, EventQueue, Font, RenderingHints, Toolkit}
+import java.text.AttributedString
 import java.time.ZonedDateTime
 import java.util.Locale
 import javax.imageio.ImageIO
@@ -56,6 +58,8 @@ object Window {
                      skipUpdate : Boolean = false,
                      crossHair  : Boolean = true,
                      textShift  : Int     = 4,
+                     textYPad   : Int     = 12,
+                     textXPad   : Int     = 36,
                      fontSize   : Double  = 20.0,
                    )
 
@@ -141,6 +145,12 @@ object Window {
       val textShift: Opt[Int] = opt("text-shift", default = Some(default.textShift),
         descr = s"Horizontal text 'hover' shift in pixels (default: ${default.textShift}).",
       )
+      val textXPad: Opt[Int] = opt("text-x-pad", default = Some(default.textXPad),
+        descr = s"Horizontal text border padding in pixels (default: ${default.textXPad}).",
+      )
+      val textYPad: Opt[Int] = opt("text-y-pad", default = Some(default.textYPad),
+        descr = s"Vertical text border padding in pixels (default: ${default.textYPad}).",
+      )
       val fontSize: Opt[Double] = opt("font-size", default = Some(default.fontSize),
         descr = s"Font size in pixels (default: ${default.fontSize}).",
       )
@@ -166,6 +176,8 @@ object Window {
         hasView     = !noView(),
         yShift      = yShift(),
         textShift   = textShift(),
+        textXPad    = textXPad(),
+        textYPad    = textYPad(),
         skipUpdate  = skipUpdate(),
         crossHair   = !noCrossHair(),
         fontSize    = fontSize(),
@@ -426,11 +438,7 @@ object Window {
     private val textFont = font1pt.deriveFont(config.fontSize.toFloat)
 
     private def mkSideView(isLeft: Boolean) = {
-      val res = new ViewSideImpl(
-        config.panelWidth, config.panelHeight, yShift = config.yShift,
-        imgExtent = config.imgExtent, imgCrop = config.imgCrop, crossHair = config.crossHair,
-        alignRight = isLeft
-      )
+      val res = new ViewSideImpl(alignRight = isLeft)
       res.font = textFont
       res
     }
@@ -487,14 +495,14 @@ object Window {
     })
   }
 
-  private final class ViewSideImpl(_width: Int, _height: Int, yShift: Int, imgExtent: Int, imgCrop: Int,
-                                   crossHair: Boolean,
-                                   alignRight: Boolean
-                                  )
+  private final class ViewSideImpl(alignRight: Boolean
+                                  )(implicit config: Config)
     extends Component {
 
+    import config.{panelWidth, panelHeight, imgExtent, imgCrop, crossHair, textShift, textXPad, textYPad}
+
     opaque        = true
-    preferredSize = new Dimension(_width, _height)
+    preferredSize = new Dimension(panelWidth, panelHeight)
 
     private var _data = Option.empty[Content]
 
@@ -504,9 +512,9 @@ object Window {
       repaint()
     }
 
-    private val imgX = if (alignRight) _width - imgExtent else 0
-    private val pMin = min(_width, _height)
-    private val pMax = max(_width, _height)
+    private val imgX = if (alignRight) panelWidth - imgExtent else 0
+    private val pMin = min(panelWidth, panelHeight)
+    private val pMax = max(panelWidth, panelHeight)
     private val imgY = (pMin - imgExtent)/2 + (pMax - pMin)
 
 //    listenTo(mouse.clicks)
@@ -514,7 +522,7 @@ object Window {
     override protected def paintComponent(g: Graphics2D): Unit = {
       super.paintComponent(g)
       g.setColor(Color.black)
-      g.fillRect(0, 0, _width, _height)
+      g.fillRect(0, 0, panelWidth, panelHeight)
       _data.foreach { c =>
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION     , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
         g.setRenderingHint(RenderingHints.KEY_RENDERING         , RenderingHints.VALUE_RENDER_QUALITY       )
@@ -525,10 +533,46 @@ object Window {
           /* sx1 */ imgCrop, /* sy1 */ imgCrop, /* sx2 */ img.getWidth - imgCrop, /* sy2 */ img.getHeight - imgCrop,
           peer)
 
-        g.setColor(Color.white)
         val fm = g.getFontMetrics
-        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
-        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
+//        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
+//        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
+
+        val frc = g.getFontRenderContext
+
+        def renderText(isBottom: Boolean): Unit = {
+          val text    = if (isBottom) c.textBottom else c.textTop
+          val as      = new AttributedString(text)
+          as.addAttribute(TextAttribute.FONT, g.getFont)  // lbm ignores Graphics2D font!
+          val lbm     = new LineBreakMeasurer(as.getIterator, frc)
+          val maxTxtW = imgExtent - textXPad * 2
+          val txtX    = imgX + textXPad
+
+          var lineCnt = 0
+          while (lbm.getPosition < text.length) {
+            lbm.nextLayout(maxTxtW)
+            lineCnt += 1
+          }
+
+          val txtH = + fm.getHeight * lineCnt
+          g.setColor(new Color(0x7F000000, true))
+          val hoverH = txtH + textYPad * 2
+          val hoverY = if (isBottom) imgY + imgExtent - hoverH else imgY
+          g.fillRect(imgX, hoverY, imgExtent, hoverH)
+
+          g.setColor(Color.white)
+          var txtY = (hoverY + textYPad + fm.getAscent).toFloat
+          lbm.setPosition(0)
+          while (lbm.getPosition < text.length) {
+            val lay = lbm.nextLayout(maxTxtW)
+            //          txtY += lay.getAscent
+            val dx = (maxTxtW - lay.getAdvance) * 0.5f
+            lay.draw(g, txtX + dx, txtY)
+            txtY += fm.getHeight // lay.getDescent + lay.getLeading
+          }
+        }
+
+        renderText(false)
+        renderText(true )
 
         if (crossHair) {
           // XXX TODO
