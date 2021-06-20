@@ -10,6 +10,11 @@ This repository contains code for an ongoing art project. See
 comes with absolutely no warranties.
 To contact the author, send an e-mail to `contact at sciss.de`.
 
+The included font for the physical window rendering is [Libre Franklin](https://github.com/impallari/Libre-Franklin)
+covered by the SIL Open Font License, Version 1.1.
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1)
 ## building
 
 Builds with sbt against Scala 2.13.

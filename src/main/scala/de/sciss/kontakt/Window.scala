@@ -23,11 +23,12 @@ import de.sciss.scaladon.Mastodon.Scope
 import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
 import net.harawata.appdirs.AppDirsFactory
+import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
 import java.awt.event.{ActionEvent, InputEvent, KeyEvent}
 import java.awt.image.BufferedImage
-import java.awt.{Color, EventQueue, RenderingHints, Toolkit}
+import java.awt.{Color, EventQueue, Font, RenderingHints, Toolkit}
 import java.time.ZonedDateTime
 import java.util.Locale
 import javax.imageio.ImageIO
@@ -36,6 +37,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, blocking}
 import scala.math.{max, min}
 import scala.swing.{BoxPanel, Component, Dimension, Graphics2D, MainFrame, Orientation, RootPanel, Swing}
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 object Window {
@@ -52,6 +54,9 @@ object Window {
                      hasView    : Boolean = true,
                      yShift     : Int     = 0,
                      skipUpdate : Boolean = false,
+                     crossHair  : Boolean = true,
+                     textShift  : Int     = 4,
+                     fontSize   : Double  = 20.0,
                    )
 
   object Entry {
@@ -133,11 +138,20 @@ object Window {
       val yShift: Opt[Int] = opt("y-shift", default = Some(default.yShift),
         descr = s"Vertical shift in pixels (default: ${default.yShift}).",
       )
+      val textShift: Opt[Int] = opt("text-shift", default = Some(default.textShift),
+        descr = s"Horizontal text 'hover' shift in pixels (default: ${default.textShift}).",
+      )
+      val fontSize: Opt[Double] = opt("font-size", default = Some(default.fontSize),
+        descr = s"Font size in pixels (default: ${default.fontSize}).",
+      )
       val noView: Opt[Boolean] = opt("no-view", default = Some(!default.hasView),
         descr = "Do not open window."
       )
       val skipUpdate: Opt[Boolean] = opt("skip-update", default = Some(default.skipUpdate),
         descr = "Do not check online for updates."
+      )
+      val noCrossHair: Opt[Boolean] = opt("no-cross-hair", default = Some(!default.crossHair),
+        descr = "Do not draw cross hair."
       )
 
       verify()
@@ -151,11 +165,31 @@ object Window {
         imgCrop     = imgCrop(),
         hasView     = !noView(),
         yShift      = yShift(),
+        textShift   = textShift(),
         skipUpdate  = skipUpdate(),
+        crossHair   = !noCrossHair(),
+        fontSize    = fontSize(),
       )
     }
 
     run()(p.config)
+  }
+
+  lazy val font1pt: Font = {
+    val url = getClass.getResource("/LibreFranklin-Regular.ttf")
+    try {
+      val is  = url.openStream()
+      try {
+        Font.createFont(Font.TRUETYPE_FONT, is)
+      } finally {
+        is.close()
+      }
+    } catch {
+      case NonFatal(ex) =>
+        Console.err.println("Could not read font:")
+        ex.printStackTrace()
+        new Font(Font.SANS_SERIF, Font.PLAIN, 1)
+    }
   }
 
   def run()(implicit config: Config): Unit = {
@@ -327,26 +361,48 @@ object Window {
     if (config.verbose) println(s"[log] $what")
 
   case class Content(
-                    text: String,
-                    image: BufferedImage,
+                    textTop   : String,
+                    textBottom: String,
+                    image     : BufferedImage,
                     )
+
+  def htmlToPlain(str: String): String = {
+    val t0        = str.trim
+    val tagStart  = "<p>"
+    val tagEnd    = "</p>"
+    val t   = if (t0.startsWith(tagStart) && t0.endsWith(tagEnd)) {
+      t0.substring(tagStart.length, t0.length - tagEnd.length)
+    } else {
+      t0
+    }
+    // XXX TODO what's the policy here for Mastodon? Why they encode `&apos;` ?
+    val u0 = StringEscapeUtils.unescapeXml(t)
+    StringEscapeUtils.unescapeHtml4(u0)
+  }
 
   // note: also fails if entries is empty
   def fetchPair(entries: Entries) /*(implicit config: Config)*/: Future[(Content, Content)] =
     Future {
       def readOne(e: Entry): Content = {
         val f = localImageFile(e)
-        val imgOrig = blocking {
+        val image = blocking {
           ImageIO.read(f)
         }
-//        val img     = imgOrig.getScaledInstance(config.imgExtent, config.imgExtent, Image.SCALE_SMOOTH)
+//        val imgSc     = image.getScaledInstance(config.imgExtent, config.imgExtent, Image.SCALE_SMOOTH)
         val sep     = " - "
-        val sepIdx  = e.content.indexOf(sep)
-        val text    = if (sepIdx < 0) e.content else e.content.substring(sepIdx + sep.length)
-        Content(text, imgOrig)
+        val plain   = htmlToPlain(e.content)
+        println(s"HTML '${e.content}' -> plain '$plain'")
+        val sepIdx  = plain.indexOf(sep)
+        val text    = if (sepIdx < 0) plain else plain.substring(sepIdx + sep.length)
+        Content(textTop = text, textBottom = text, image = image)
       }
 
-      (readOne(entries.last), readOne(entries.head))
+      val l0    = readOne(entries.last)
+      val r0    = readOne(entries.head)
+      val left  = l0.copy(textBottom  = r0.textBottom)
+      val right = r0.copy(textTop     = l0.textTop   )
+
+      (left, right)
     }
 
   // all methods must be called on EDT
@@ -365,9 +421,17 @@ object Window {
 
 //    title = "Kontakt"
 
-    private def mkSideView(isLeft: Boolean) =
-      new ViewSideImpl(config.panelWidth, config.panelHeight, yShift = config.yShift,
-        imgExtent = config.imgExtent, imgCrop = config.imgCrop, alignRight = isLeft)
+    private val textFont = font1pt.deriveFont(config.fontSize.toFloat)
+
+    private def mkSideView(isLeft: Boolean) = {
+      val res = new ViewSideImpl(
+        config.panelWidth, config.panelHeight, yShift = config.yShift,
+        imgExtent = config.imgExtent, imgCrop = config.imgCrop, crossHair = config.crossHair,
+        alignRight = isLeft
+      )
+      res.font = textFont
+      res
+    }
 
     private val leftView  = mkSideView(isLeft = true  )
     private val rightView = mkSideView(isLeft = false )
@@ -422,7 +486,9 @@ object Window {
   }
 
   private final class ViewSideImpl(_width: Int, _height: Int, yShift: Int, imgExtent: Int, imgCrop: Int,
-                                   alignRight: Boolean)
+                                   crossHair: Boolean,
+                                   alignRight: Boolean
+                                  )
     extends Component {
 
     opaque        = true
@@ -448,13 +514,23 @@ object Window {
       g.setColor(Color.black)
       g.fillRect(0, 0, _width, _height)
       _data.foreach { c =>
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-        g.setRenderingHint(RenderingHints.KEY_RENDERING     , RenderingHints.VALUE_RENDER_QUALITY       )
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION     , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        g.setRenderingHint(RenderingHints.KEY_RENDERING         , RenderingHints.VALUE_RENDER_QUALITY       )
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING , RenderingHints.VALUE_TEXT_ANTIALIAS_ON    )
         val img = c.image
 //        g.drawImage(img, imgX, imgY, imgExtent, imgExtent, peer)
         g.drawImage(img, /* dx1 */ imgX, /* dy1 */ imgY, /* dx2 */ imgX + imgExtent, /* dy2 */ imgY + imgExtent,
           /* sx1 */ imgCrop, /* sy1 */ imgCrop, /* sx2 */ img.getWidth - imgCrop, /* sy2 */ img.getHeight - imgCrop,
           peer)
+
+        g.setColor(Color.white)
+        val fm = g.getFontMetrics
+        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
+        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
+
+        if (crossHair) {
+          // XXX TODO
+        }
       }
     }
   }
