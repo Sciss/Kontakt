@@ -19,7 +19,7 @@ import akka.http.scaladsl.model.HttpRequest
 import akka.stream.IOResult
 import akka.stream.scaladsl.FileIO
 import de.sciss.file._
-import de.sciss.kontakt.Common.fullVersion
+import de.sciss.kontakt.Common.{fullVersion, shutdown}
 import de.sciss.scaladon.Mastodon.Scope
 import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
@@ -32,8 +32,9 @@ import java.awt.font.{LineBreakMeasurer, TextAttribute}
 import java.awt.image.BufferedImage
 import java.awt.{Color, EventQueue, Font, RenderingHints, Toolkit}
 import java.text.AttributedString
-import java.time.ZonedDateTime
-import java.util.{Date, Locale}
+import java.time.temporal.ChronoUnit
+import java.time.{OffsetDateTime, ZonedDateTime}
+import java.util.{Date, Locale, Timer, TimerTask}
 import javax.imageio.ImageIO
 import javax.swing.{AbstractAction, JComponent, KeyStroke, SwingUtilities}
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -47,26 +48,27 @@ import scala.util.{Failure, Success}
   */
 object Window {
   case class Config(
-                     username   : String  = "user",
-                     password   : String  = "pass",
-                     verbose    : Boolean = false,
-                     initDelay  : Int     =   120,
-                     shutdown   : Boolean = true,
-                     baseURI    : String  = "botsin.space",
-                     accountId  : Id      = Id("304274"),
-                     imgExtent  : Int     = 816,
-                     imgCrop    : Int     = 160,
-                     panelWidth : Int     = 1920/2,
-                     panelHeight: Int     = 1080,
-                     hasView    : Boolean = true,
-                     yShift     : Int     = 0,
-                     skipUpdate : Boolean = false,
-                     crossHair  : Boolean = true,
-                     textShift  : Int     = 2, // 3, // 4,
-                     textYPad   : Int     = 12,
-                     textXPad   : Int     = 36,
-                     fontSize   : Double  = 20.0,
-                     crossEyed  : Boolean = false,
+                     username     : String  = "user",
+                     password     : String  = "pass",
+                     verbose      : Boolean = false,
+                     initDelay    : Int     =   120,
+                     shutdownHour : Int     = 21,
+                     baseURI      : String  = "botsin.space",
+                     accountId    : Id      = Id("304274"),
+                     imgExtent    : Int     = 816,
+                     imgCrop      : Int     = 160,
+                     panelWidth   : Int     = 1920/2,
+                     panelHeight  : Int     = 1080,
+                     hasView      : Boolean = true,
+                     yShift       : Int     = 0,
+                     skipUpdate   : Boolean = false,
+                     updateMinutes: Int     = 15,
+                     crossHair    : Boolean = true,
+                     textShift    : Int     = 2, // 3, // 4,
+                     textYPad     : Int     = 12,
+                     textXPad     : Int     = 36,
+                     fontSize     : Double  = 20.0,
+                     crossEyed    : Boolean = false,
                    )
 
   object Entry {
@@ -169,41 +171,49 @@ object Window {
       val skipUpdate: Opt[Boolean] = opt("skip-update", default = Some(default.skipUpdate),
         descr = "Do not check online for updates."
       )
+      val updateMinutes: Opt[Int] = opt("update-minutes", default = Some(default.updateMinutes),
+        descr = s"Repeated update check in minutes, or zero to disable (default: ${default.updateMinutes})."
+      )
       val noCrossHair: Opt[Boolean] = opt("no-cross-hair", default = Some(!default.crossHair),
         descr = "Do not draw cross hair."
       )
       val crossEyed: Opt[Boolean] = opt("cross-eyed", default = Some(default.crossEyed),
         descr = "Render for cross-eyed viewing instead of stereoscopic lenses"
       )
-      val noShutdown: Opt[Boolean] = opt("no-shutdown", descr = "Do not shutdown Pi after completion.",
-        default = Some(!default.shutdown)
+      val shutdownHour: Opt[Int] = opt("shutdown",
+        descr = s"Hour of Pi shutdown (or 0 to avoid shutdown) (default: ${default.shutdownHour})",
+        default = Some(default.shutdownHour),
+        validate = x => x >= 0 && x <= 24
       )
 
       verify()
       val config: Config = Config(
-        username    = username(),
-        password    = password(),
-        initDelay   = initDelay(),
-        verbose     = verbose(),
-        baseURI     = baseURI(),
-        accountId   = accountId(),
-        imgExtent   = imgExtent(),
-        imgCrop     = imgCrop(),
-        hasView     = !noView(),
-        yShift      = yShift(),
-        textShift   = textShift(),
-        textXPad    = textXPad(),
-        textYPad    = textYPad(),
-        skipUpdate  = skipUpdate(),
-        crossHair   = !noCrossHair(),
-        fontSize    = fontSize(),
-        crossEyed   = crossEyed(),
-        shutdown    = !noShutdown(),
+        username      = username(),
+        password      = password(),
+        initDelay     = initDelay(),
+        verbose       = verbose(),
+        baseURI       = baseURI(),
+        accountId     = accountId(),
+        imgExtent     = imgExtent(),
+        imgCrop       = imgCrop(),
+        hasView       = !noView(),
+        yShift        = yShift(),
+        textShift     = textShift(),
+        textXPad      = textXPad(),
+        textYPad      = textYPad(),
+        skipUpdate    = skipUpdate(),
+        crossHair     = !noCrossHair(),
+        fontSize      = fontSize(),
+        crossEyed     = crossEyed(),
+        shutdownHour  = shutdownHour(),
+        updateMinutes = updateMinutes(),
       )
     }
 
     run()(p.config)
   }
+
+  private val writeLock = new AnyRef
 
   lazy val font1pt: Font = {
     val url = getClass.getResource("/LibreFranklin-Regular.ttf")
@@ -232,8 +242,11 @@ object Window {
     if (initDelayMS > 0) {
       println(s"Waiting for ${config.initDelay} seconds.")
       Thread.sleep(initDelayMS)
-      println(s"The date and time: ${new Date()}")
     }
+
+    val odt       = OffsetDateTime.now()
+    val date      = Date.from(odt.toInstant)
+    println(s"The date and time: $date")
 
     implicit val as: ActorSystem = ActorSystem()
     var view = Option.empty[View]
@@ -241,9 +254,34 @@ object Window {
       view = Some(openView())
     }
 
+    lazy val timer = new Timer
+
     val entriesFut = if (config.skipUpdate) readCache() else {
       login().flatMap { implicit li =>
-        updateEntries()
+        val e0Fut = updateEntries()
+        if (config.skipUpdate || config.updateMinutes == 0) e0Fut else e0Fut.andThen {
+          case Success(e0) =>
+            val updateMillis = config.updateMinutes * 60 * 1000L
+            timer.schedule(new TimerTask {
+              override def run(): Unit = {
+                log("running repeated update check...")
+                updateEntries().foreach { e1 =>
+                  val hasNew = e1 != e0
+                  log(s"Update checked. New contents? $hasNew")
+                  if (hasNew && config.hasView) {
+                    fetchPair(e1).foreach { case (cOld, cNew) =>
+                      Swing.onEDT {
+                        view.foreach { v =>
+                          v.left  = Some(cOld)
+                          v.right = Some(cNew)
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }, updateMillis, updateMillis)
+        }
       }
     }
 
@@ -265,6 +303,25 @@ object Window {
       case Failure(ex) =>
         Console.err.println("Update failed:")
         ex.printStackTrace()
+    }
+
+    if (config.shutdownHour > 0) {
+      val odtSD0  = odt.withHour(config.shutdownHour % 24).truncatedTo(ChronoUnit.HOURS)
+      val odtSD   = if (odtSD0.isAfter(odt)) odtSD0 else {
+        println("WARNING: Shutdown hour lies on next day. Shutting down in two hours instead!")
+        odt.plus(2, ChronoUnit.HOURS)
+      }
+      val dateSD  = Date.from(odtSD.toInstant)
+      timer.schedule(new TimerTask {
+        override def run(): Unit = {
+          log("About to shut down...")
+          Thread.sleep(8000)
+          writeLock.synchronized {
+            shutdown()
+          }
+        }
+      }, dateSD)
+      log(s"Shutdown scheduled for $dateSD")
     }
   }
 
@@ -389,18 +446,20 @@ object Window {
     val f = cacheFile()
     Future {
       blocking {
-        val dOut = DataOutput.open(f)
-        try {
-          Entries.ser.write(e, dOut)
-        } finally {
-          dOut.close()
+        writeLock.synchronized {
+          val dOut = DataOutput.open(f)
+          try {
+            Entries.ser.write(e, dOut)
+          } finally {
+            dOut.close()
+          }
         }
       }
     }
   }
 
   def log(what: => String)(implicit config: Config): Unit =
-    if (config.verbose) println(s"[log] $what")
+    if (config.verbose) println(s"[${new Date}] kontakt - $what")
 
   case class Content(
                     textTop   : String,
