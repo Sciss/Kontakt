@@ -1,6 +1,6 @@
 lazy val baseName       = "Kontakt"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.4.0-SNAPSHOT"
+lazy val projectVersion = "0.4.0"
 
 lazy val buildInfoSettings = Seq(
   // ---- build info ----
@@ -33,7 +33,8 @@ lazy val root = project.in(file("."))
       "mpicbg"              %  "mpicbg"               % deps.main.mpicbg,       // 2D transforms
       "net.harawata"        %  "appdirs"              % deps.main.appDirs,      // finding standard directories
       "net.imagej"          %  "ij"                   % deps.main.imageJ,       // analyzing image data
-      "org.apache.commons"  % "commons-text"          % deps.main.commonsText,  // decode HTML entities
+//      "org.apache.commons"  % "commons-text"          % deps.main.commonsText,  // decode HTML entities
+      "org.unbescape"       % "unbescape"             % deps.main.unbescape,    // decode HTML entities
       "org.rogach"          %% "scallop"              % deps.main.scallop,      // command line option parsing
       "org.scala-lang.modules" %% "scala-swing"       % deps.main.scalaSwing,   // UI
     ),
@@ -43,16 +44,17 @@ lazy val root = project.in(file("."))
 lazy val deps = new {
   lazy val main = new {
     val appDirs     = "1.2.1"
-    val commonsText = "1.9"
+//    val commonsText = "1.9"
     val fileUtil    = "1.1.5"
     val imageJ      = "1.53j" // "1.47h"
     val mpicbg      = "1.4.1"
     val numbers     = "0.2.1"
     val pi4j        = "1.4"
-    val scaladon    = "0.5.0-SNAPSHOT"
+    val scaladon    = "0.5.0"
     val scalaSwing  = "3.0.0"
     val scallop     = "4.0.3"
     val serial      = "2.0.1"
+    val unbescape   = "1.1.6.RELEASE"
   }
 }
 

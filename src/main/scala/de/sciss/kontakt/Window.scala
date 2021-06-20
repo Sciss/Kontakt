@@ -24,7 +24,8 @@ import de.sciss.scaladon.Mastodon.Scope
 import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
 import net.harawata.appdirs.AppDirsFactory
-import org.apache.commons.text.StringEscapeUtils
+import org.unbescape.html.HtmlEscape
+//import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
 import java.awt.event.{ActionEvent, InputEvent, KeyEvent}
@@ -51,7 +52,7 @@ object Window {
                      username     : String  = "user",
                      password     : String  = "pass",
                      verbose      : Boolean = false,
-                     initDelay    : Int     =   120,
+                     initDelay    : Int     = 120,
                      shutdownHour : Int     = 21,
                      baseURI      : String  = "botsin.space",
                      accountId    : Id      = Id("304274"),
@@ -480,7 +481,8 @@ object Window {
     // cf. https://stackoverflow.com/questions/21883496/how-to-decode-xhtml-and-or-html5-entities-in-java
 //    val u0 = StringEscapeUtils.unescapeXml(t)
 //    u0 // StringEscapeUtils.unescapeHtml4(u0)
-    StringEscapeUtils.unescapeHtml4(t.replace("&apos;", "\'"))
+//    StringEscapeUtils.unescapeHtml4(t.replace("&apos;", "\'"))
+    HtmlEscape.unescapeHtml(t)
   }
 
   // note: also fails if entries is empty

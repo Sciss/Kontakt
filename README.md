@@ -11,20 +11,22 @@ comes with absolutely no warranties.
 To contact the author, send an e-mail to `contact at sciss.de`.
 
 The included font for the physical window rendering is [Libre Franklin](https://github.com/impallari/Libre-Franklin)
-covered by the SIL Open Font License, Version 1.1.
+covered by the SIL Open Font License 1.1.
 
------------------------------------------------------------
-SIL OPEN FONT LICENSE Version 1.1)
 ## building
 
 Builds with sbt against Scala 2.13.
 Create executable: `sbt assembly`
 
-## run on the Raspberry Pi
+## run on the observation Raspberry Pi
 
     java -Xmx768m -jar kontakt.jar --init-delay 10 -V --user kontakt... --pass ...
 
 Add `--no-shutdown` during testing.
+
+## run on the window Raspberry Pi
+
+    java -Xmx768m -cp kontakt.jar de.sciss.kontakt.Window --init-delay 10 -V --user kontakt... --pass ...
 
 ## test runs
 
@@ -37,3 +39,7 @@ Add `--no-shutdown` during testing.
     -u kontakt... -p ... -i /data/temp/_killme.jpg
 
 `ServoTest`
+
+## cache
+
+`Window` caches contents and photos in `~/.cache/kontakt`.
