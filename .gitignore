@@ -8,3 +8,4 @@ project/boot/
 *.swp
 /.bsp/
 /kontakt.jar
+/run-window.sh
