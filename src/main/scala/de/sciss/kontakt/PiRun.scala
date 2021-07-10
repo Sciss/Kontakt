@@ -41,6 +41,8 @@ object PiRun {
                    shutterMorning : Int     = 10000,
                    shutterNight   : Int     = 15000,
                    pumpTimeOut    : Int     =    90,
+                   httpConnTimeOut: Int     =    60,  // ! Akka default of 10s is too low
+                   httpIdleTimeOut: Int     =    60,
                    pump           : Boolean = true,
                    toot           : Boolean = true,
                    verbose        : Boolean = false,
@@ -97,6 +99,12 @@ object PiRun {
       val noShutdown: Opt[Boolean] = opt("no-shutdown", descr = "Do not shutdown Pi after completion.",
         default = Some(!default.shutdown)
       )
+      val httpIdleTimeOut: Opt[Int] = opt("http-idle-timeout", default = Some(default.httpIdleTimeOut),
+        descr = s"Http client idle time-out in seconds (default: ${default.httpIdleTimeOut})."
+      )
+      val httpConnTimeOut: Opt[Int] = opt("http-conn-timeout", default = Some(default.httpConnTimeOut),
+        descr = s"Http client connection time-out in seconds (default: ${default.httpConnTimeOut})."
+      )
 
       verify()
       val config: Config = Config(
@@ -113,6 +121,8 @@ object PiRun {
         pump            = !noPump(),
         toot            = !noToot(),
         shutdown        = !noShutdown(),
+        httpIdleTimeOut = httpIdleTimeOut(),
+        httpConnTimeOut = httpConnTimeOut(),
       )
     }
     run(p.config)
@@ -120,6 +130,10 @@ object PiRun {
 
   def run(c: Config): Unit = {
     println(PiRun.nameAndVersion)
+
+    // cf. https://github.com/Sciss/scaladon/issues/1
+    sys.props("akka.http.client.idle-timeout")        = s"${c.httpIdleTimeOut}s"
+    sys.props("akka.http.client.connecting-timeout")  = s"${c.httpConnTimeOut}s"
 
     val initDelayMS = math.max(0, c.initDelay) * 1000L
     if (initDelayMS > 0) {
