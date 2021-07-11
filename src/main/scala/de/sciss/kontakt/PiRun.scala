@@ -18,11 +18,12 @@ import de.sciss.kontakt.Common.{fullVersion, shutdown}
 import de.sciss.scaladon.Status
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
-import java.io.File
+import java.io.{File, PrintStream}
 import java.text.SimpleDateFormat
 import java.time.{Duration, OffsetDateTime}
 import java.util.concurrent.TimeUnit
 import java.util.{Date, Locale}
+import scala.annotation.tailrec
 import scala.concurrent.Await
 import scala.concurrent.duration.{Duration => SDuration}
 import scala.util.control.NonFatal
@@ -41,12 +42,13 @@ object PiRun {
                    shutterMorning : Int     = 10000,
                    shutterNight   : Int     = 15000,
                    pumpTimeOut    : Int     =    90,
-                   httpConnTimeOut: Int     =    60,  // ! Akka default of 10s is too low
+                   httpConnTimeOut: Int     =    20,  // ! Akka default of 10s is too low
                    httpIdleTimeOut: Int     =    60,
                    pump           : Boolean = true,
                    toot           : Boolean = true,
                    verbose        : Boolean = false,
                    shutdown       : Boolean = true,
+                   tootAttempts   : Int     = 2,
                    )
 
   final def name          : String = "Kontakt"
@@ -105,6 +107,9 @@ object PiRun {
       val httpConnTimeOut: Opt[Int] = opt("http-conn-timeout", default = Some(default.httpConnTimeOut),
         descr = s"Http client connection time-out in seconds (default: ${default.httpConnTimeOut})."
       )
+      val tootAttempts: Opt[Int] = opt("toot-attempts", default = Some(default.tootAttempts),
+        descr = s"Attempts to toot photo, if there are network problems (default: ${default.tootAttempts})."
+      )
 
       verify()
       val config: Config = Config(
@@ -123,6 +128,7 @@ object PiRun {
         shutdown        = !noShutdown(),
         httpIdleTimeOut = httpIdleTimeOut(),
         httpConnTimeOut = httpConnTimeOut(),
+        tootAttempts    = tootAttempts(),
       )
     }
     run(p.config)
@@ -166,6 +172,7 @@ object PiRun {
     }
 
     val odt       = OffsetDateTime.now()
+    val dateStr   = odt.withNano(0).toString
     val date      = Date.from(odt.toInstant)
     val isMorning = odt.getHour > 4 && odt.getHour < 8
     val isDay     = odt.getHour > 8 && odt.getHour < 20
@@ -173,6 +180,22 @@ object PiRun {
     val shutter   = if (isDay) c.shutterDay else if (isMorning) c.shutterMorning else c.shutterNight
     val dirPhoto  = new File("photos").getCanonicalFile
     val fPhoto    = stampedFile(dirPhoto, pre = "snap", ext = "jpg", date = date)
+
+    def logFailure(what: String, ex: Throwable): Unit =
+      try {
+        Console.err.println(s"${what.capitalize} failed:")
+        ex.printStackTrace()
+        val n  = s"log-${dateStr.replace(":", "_")}-$what.txt"
+        val ps = new PrintStream(file(n), "UTF-8")
+        try {
+          ex.printStackTrace(ps)
+        } finally {
+          ps.close()
+        }
+      } catch {
+        case _: Throwable => ()
+      }
+
     val resPhoto = Try {
       val pb = new ProcessBuilder("raspistill",
         "-t", "400",
@@ -199,8 +222,7 @@ object PiRun {
         Console.err.println(s"Photo failed with code $code")
         false
       case Failure(ex) =>
-        Console.err.println("Photo failed:")
-        ex.printStackTrace()
+        logFailure("photo", ex)
         false
     }
 
@@ -220,22 +242,19 @@ object PiRun {
       val hasCrop = resCrop match {
         case Success(_) => true
         case Failure(ex) =>
-          Console.err.println("Crop photo failed:")
-          ex.printStackTrace()
+          logFailure("crop", ex)
           false
       }
 
       if (hasCrop && c.toot) {
         println("Tooting photo...")
-        val dateStr   = odt.withNano(0).toString
         val dateZero  = OffsetDateTime.parse("2021-06-19T04:00:00+02:00") // begin on June 19th, 2021
         val dayIdx    = Duration.between(dateZero, odt).toDays.toInt
         val annot     = try {
           io.Source.fromInputStream(getClass.getResourceAsStream("/annotations.txt"), "UTF-8").getLines().drop(dayIdx).next()
         } catch {
           case NonFatal(ex) =>
-            Console.err.println("Error fetching text fragment:")
-            ex.printStackTrace()
+            logFailure("annot", ex)
             "we're still trying to make contact..."
         }
         val text      = s"The time is $dateStr - $annot"
@@ -247,19 +266,25 @@ object PiRun {
           verbose   = c.verbose,
         )
 
-        val futToot = TootPhoto.run(cToot)
-        val trToot  = Try { Await.ready(futToot, SDuration(60, TimeUnit.SECONDS)) }
-        val resToot: Try[Status] = trToot.flatMap { _ => futToot.value.get }
+        @tailrec
+        def attemptToot(attempt: Int): Unit = {
+          if (attempt > 1) println(s"Attempt no. $attempt...")
+          val futToot = TootPhoto.run(cToot)
+          val trToot  = Try { Await.ready(futToot, SDuration(60, TimeUnit.SECONDS)) }
+          val resToot: Try[Status] = trToot.flatMap { _ => futToot.value.get }
 
-        resToot match {
-          case Success(_) =>
-            if (c.verbose) {
-              println("Successfully sent toot.")
-            }
-          case Failure(ex) =>
-            Console.err.println("Toot failed:")
-            ex.printStackTrace()
+          resToot match {
+            case Success(_) =>
+              if (c.verbose) {
+                println("Successfully sent toot.")
+              }
+            case Failure(ex) =>
+              logFailure("toot", ex)
+              if (attempt < c.tootAttempts) attemptToot(attempt + 1)
+          }
         }
+
+        attemptToot(attempt = 1)
       }
     }
 
