@@ -43,3 +43,9 @@ Add `--no-shutdown` during testing.
 ## cache
 
 `Window` caches contents and photos in `~/.cache/kontakt`.
+
+## transfer test
+
+    ffmpeg -i '/data/projects/Kontakt/image_transfer_rsmp/transfer-rsmp-%d.jpg' -r 25 '/data/projects/Kontakt/materials/transfer-rsmp.mp4'
+
+    ffmpeg -i '/data/projects/Kontakt/image_transfer_rsmp/transfer-rsmp-%d.jpg' -r 25 -filter:v "crop=1080:1080:180:180,fade=type=out:start_frame=2225:nb_frames=25" '/data/projects/Kontakt/materials/transfer-rsmp-cr.mp4'
