@@ -49,3 +49,16 @@ Add `--no-shutdown` during testing.
     ffmpeg -i '/data/projects/Kontakt/image_transfer_rsmp/transfer-rsmp-%d.jpg' -r 25 '/data/projects/Kontakt/materials/transfer-rsmp.mp4'
 
     ffmpeg -i '/data/projects/Kontakt/image_transfer_rsmp/transfer-rsmp-%d.jpg' -r 25 -filter:v "crop=1080:1080:180:180,fade=type=out:start_frame=2225:nb_frames=25" '/data/projects/Kontakt/materials/transfer-rsmp-cr.mp4'
+
+## fix wiring-pi
+
+__Important:__ Wiring-Pi is broken on the Pi 4. The pull up/down resistors cannot be configured.
+See https://pi4j.com/1.3/install.html#WiringPi_Native_Library -- one needs to replace the installed versions
+with an unofficial one!
+
+    sudo apt remove wiringpi -y
+    sudo apt install git-core gcc make
+    cd ~/Documents/devel/
+    git clone https://github.com/WiringPi/WiringPi --branch master --single-branch wiringpi
+    cd wiringpi
+    sudo ./build
