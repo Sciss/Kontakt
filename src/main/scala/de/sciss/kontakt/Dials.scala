@@ -111,13 +111,13 @@ object Dials {
       inA.addListener(new GpioPinListenerDigital() {
         override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
           stateA = e.getState.isHigh
-          if (stateA == stateB) fun(1)
+          if (stateA == stateB) fun(-1)
         }
       })
       inB.addListener(new GpioPinListenerDigital() {
         override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
           stateB = e.getState.isHigh
-          if (stateA == stateB) fun(-1)
+          if (stateA == stateB) fun(+1)
         }
       })
     }
