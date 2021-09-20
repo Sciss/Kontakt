@@ -76,6 +76,7 @@ object Window {
                      minusMonths  : Int     = 1,
                      threshEntries: Boolean = true,
                      desktop      : Boolean = false,
+                     overlayInset : Int     = 168,
                    )
 
   object Entry {
@@ -169,6 +170,10 @@ object Window {
       val textYPad: Opt[Int] = opt("text-y-pad", default = Some(default.textYPad),
         descr = s"Vertical text border padding in pixels (default: ${default.textYPad}).",
       )
+      val overlayInset: Opt[Int] = opt("overlay-inset", default = Some(default.overlayInset),
+        descr = s"Inset of time overlay in pixels (default: ${default.overlayInset}).",
+        validate = x => x >= 0
+      )
       val fontSize: Opt[Double] = opt("font-size", default = Some(default.fontSize),
         descr = s"Font size in pixels (default: ${default.fontSize}).",
       )
@@ -223,6 +228,7 @@ object Window {
         textShift     = textShift(),
         textXPad      = textXPad(),
         textYPad      = textYPad(),
+        overlayInset  = overlayInset(),
         skipUpdate    = skipUpdate(),
         crossHair     = !noCrossHair(),
         fontSize      = fontSize(),
@@ -278,11 +284,13 @@ object Window {
     var view          = Option.empty[View]
 
     // sync group
-    val entriesSync   = new AnyRef
-    var globalEntries = Entries.empty
-    var entryLeftIdx  = -1
-    var entryRightIdx = -1
-    var globalSched   = Option.empty[TimerTask]
+    val entriesSync     = new AnyRef
+    var globalEntries   = Entries.empty
+    var entryLeftIdx    = -1
+    var entryRightIdx   = -1
+    var entryLeftOver   = ""
+    var entryRightOver  = ""
+    var globalSched     = Option.empty[TimerTask]
 
     def setDefaultEntries(entries: Entries): Unit = {
       val eLeft   = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
@@ -293,22 +301,27 @@ object Window {
     def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
       fetchPair(eLeft, eRight).foreach { case (cOld, cNew) =>
         entriesSync.synchronized {
-          globalEntries = entries
-          entryLeftIdx  = entries.seq.indexOf(eLeft)
-          entryRightIdx = entries.seq.indexOf(eRight)
+          globalEntries   = entries
+          entryLeftIdx    = entries.seq.indexOf(eLeft)
+          entryRightIdx   = entries.seq.indexOf(eRight)
+          entryLeftOver   = ""
+          entryRightOver  = ""
         }
         Swing.onEDT {
           view.foreach { v =>
-            v.left  = Some(cOld)
-            v.right = Some(cNew)
+            v.left          = Some(cOld)
+            v.right         = Some(cNew)
+            v.leftOverlay   = "" // "2021-09-20T12:01:06+02:00"
+            v.rightOverlay  = "" // "2021-09-20T06:01:06+02:00"
+            v.sync()
           }
         }
       }
     }
 
-    def quitOrShutdown(): Unit = {
+    def quitOrShutdown(scheduled: Boolean): Unit = {
       log("About to shut down...")
-      if (config.shutdown) Thread.sleep(8000)
+      if (config.shutdown && scheduled) Thread.sleep(8000)
       writeLock.synchronized {
         if (config.shutdown) shutdown() else sys.exit()
       }
@@ -327,19 +340,30 @@ object Window {
       }
       globalSched = Some(tt)
       timer.schedule(tt, 1000L)
+      val leftOver  = entryLeftOver
+      val rightOver = entryRightOver
+      Swing.onEDT {
+        view.foreach { v =>
+          v.leftOverlay   = leftOver
+          v.rightOverlay  = rightOver
+          v.sync()
+        }
+      }
     }
 
     val dialsOps = if (!config.dials) None else {
       val m = Dials.run(Dials.Config(desktop = config.desktop))
       m.addListener {
-        case Dials.Left (inc) =>
+        case Dials.Left(inc) =>
           if (config.verbose) println(s"Left  dial: $inc")
           entriesSync.synchronized {
             if (entryLeftIdx >= 0) {
               // note: minus inc because sorted with newest on top
               val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
               if (newIdx != entryLeftIdx) {
-                entryLeftIdx = newIdx
+                entryLeftIdx    = newIdx
+                val eLeft       = globalEntries.seq(newIdx)
+                entryLeftOver   = eLeft.createdAt.toString
                 trigFetch()
               }
             }
@@ -352,7 +376,9 @@ object Window {
               // note: minus inc because sorted with newest on top
               val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
               if (newIdx != entryRightIdx) {
-                entryRightIdx = newIdx
+                entryRightIdx   = newIdx
+                val eRight      = globalEntries.seq(newIdx)
+                entryRightOver  = eRight.createdAt.toString
                 trigFetch()
               }
             }
@@ -360,7 +386,7 @@ object Window {
 
         case Dials.Off =>
           println("Shutdown button pressed.")
-          quitOrShutdown()
+          quitOrShutdown(scheduled = false)
       }
       Some(m)
     }
@@ -417,7 +443,7 @@ object Window {
       }
       val dateSD  = Date.from(odtSD.toInstant)
       timer.schedule(new TimerTask {
-        override def run(): Unit = quitOrShutdown()
+        override def run(): Unit = quitOrShutdown(scheduled = true)
       }, dateSD)
       log(s"Shutdown scheduled for $dateSD")
     }
@@ -612,6 +638,11 @@ object Window {
     var left  : Option[Content]
     var right : Option[Content]
 
+    var leftOverlay : String
+    var rightOverlay: String
+
+    def sync(): Unit
+
     def installKeyboardDials(m: Dials.Model): Unit
   }
 
@@ -626,6 +657,8 @@ object Window {
 //    title = "Kontakt"
 
     private val textFont = font1pt.deriveFont(config.fontSize.toFloat)
+
+    override def sync(): Unit = peer.getToolkit.sync()
 
     private def mkSideView(isLeft: Boolean) = {
       val res = new ViewSideImpl(alignRight = isLeft)
@@ -660,6 +693,11 @@ object Window {
 
     private val leftView  = mkSideView(isLeft = true  )
     private val rightView = mkSideView(isLeft = false )
+
+    override def leftOverlay : String = leftView.overlay
+    override def leftOverlay_=(s: String): Unit = leftView.overlay = s
+    override def rightOverlay : String = rightView.overlay
+    override def rightOverlay_=(s: String): Unit = rightView.overlay = s
 
     private val hiddenCursor: java.awt.Cursor =
       java.awt.Toolkit.getDefaultToolkit.createCustomCursor(
@@ -721,11 +759,18 @@ object Window {
 
     private val hoverShift = if (alignRight ^ crossEyed) config.textShift else -config.textShift
 
-    private var _data = Option.empty[Content]
+    private var _data     = Option.empty[Content]
+    private var _overlay  = ""
 
     def data: Option[Content] = _data
     def data_=(c: Option[Content]): Unit = {
       _data = c
+      repaint()
+    }
+
+    def overlay: String = _overlay
+    def overlay_=(s: String): Unit = {
+      _overlay = s
       repaint()
     }
 
@@ -736,23 +781,26 @@ object Window {
 
 //    listenTo(mouse.clicks)
 
-    private val colrHover = new Color(0x7F000000, true)
+    private val colrHover   = new Color(0x7F000000, true)
+    private val colrHover2  = new Color(0x7FFFFFFF, true)
 
     override protected def paintComponent(g: Graphics2D): Unit = {
       super.paintComponent(g)
       g.setColor(Color.black)
       g.fillRect(0, 0, panelWidth, panelHeight)
+
+      g.setRenderingHint(RenderingHints.KEY_INTERPOLATION     , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+      g.setRenderingHint(RenderingHints.KEY_RENDERING         , RenderingHints.VALUE_RENDER_QUALITY       )
+      g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING , RenderingHints.VALUE_TEXT_ANTIALIAS_ON    )
+      val fm = g.getFontMetrics
+
       _data.foreach { c =>
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION     , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-        g.setRenderingHint(RenderingHints.KEY_RENDERING         , RenderingHints.VALUE_RENDER_QUALITY       )
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING , RenderingHints.VALUE_TEXT_ANTIALIAS_ON    )
         val img = c.image
 //        g.drawImage(img, imgX, imgY, imgExtent, imgExtent, peer)
         g.drawImage(img, /* dx1 */ imgX, /* dy1 */ imgY, /* dx2 */ imgX + imgExtent, /* dy2 */ imgY + imgExtent,
           /* sx1 */ imgCrop, /* sy1 */ imgCrop, /* sx2 */ img.getWidth - imgCrop, /* sy2 */ img.getHeight - imgCrop,
           peer)
 
-        val fm = g.getFontMetrics
 //        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
 //        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
 
@@ -829,6 +877,32 @@ object Window {
           drawHair(10, 3, colrHover)
           drawHair( 8, 1, Color.white)
         }
+      }
+
+      if (_overlay.nonEmpty) {
+        val atOrig  = g.getTransform
+//        val ow      = fm.getStringBounds(_overlay, g)
+        val ow      = fm.stringWidth(_overlay)
+//        g.translate((imgExtent - ow) * 0.5f, imgX + 8f + fm.getAscent)
+        // LOL, I have no idea how to calculate the correct offset for the right view
+        val dx      = if (alignRight) {
+          imgX + config.overlayInset + fm.getAscent
+        } else {
+          imgX + imgExtent - config.overlayInset - fm.getAscent
+        }
+        if (alignRight) {
+          g.translate(dx, imgY + (imgExtent + ow) * 0.5f)
+          g.rotate(Math.PI * -0.5)
+        } else {
+          g.translate(dx, imgY + (imgExtent - ow) * 0.5f)
+          g.rotate(Math.PI * 0.5)
+        }
+        g.setColor(colrHover2)
+        g.fillRect(-4, -fm.getAscent, ow + 8, fm.getDescent + fm.getAscent)
+        g.setColor(Color.black)
+        g.drawString(_overlay, 0f, 0f)
+        // g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
+        g.setTransform(atOrig)
       }
     }
   }

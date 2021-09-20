@@ -22,10 +22,10 @@ import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 /** Controllers for the image dials and shutdown-button in the physical installation. */
 object Dials {
   case class Config(
-                     gpioLeftA    : Int = 1,
-                     gpioLeftB    : Int = 4,
-                     gpioRightA   : Int = 5,
-                     gpioRightB   : Int = 6,
+                     gpioLeftA    : Int = 5, // 1,
+                     gpioLeftB    : Int = 6, // 4,
+                     gpioRightA   : Int = 1, // 5,
+                     gpioRightB   : Int = 4, // 6,
                      gpioPowerOff : Int = 7,
                      offDuration  : Float = 3f,
                      desktop      : Boolean = false
