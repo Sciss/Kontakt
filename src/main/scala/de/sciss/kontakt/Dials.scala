@@ -15,7 +15,7 @@ package de.sciss.kontakt
 
 import com.pi4j.io.gpio.event.{GpioPinDigitalStateChangeEvent, GpioPinListenerDigital}
 import com.pi4j.io.gpio.{GpioFactory, Pin, PinPullResistance, RaspiPin}
-import de.sciss.model.Model
+import de.sciss.model
 import de.sciss.model.impl.ModelImpl
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
@@ -28,6 +28,7 @@ object Dials {
                      gpioRightB   : Int = 6,
                      gpioPowerOff : Int = 7,
                      offDuration  : Float = 3f,
+                     desktop      : Boolean = false
                    )
 
   def main(args: Array[String]): Unit = {
@@ -54,6 +55,9 @@ object Dials {
       val offDuration: Opt[Float] = opt(name = "off-duration", default = Some(default.offDuration),
         descr = s"Duration in seconds, for keeping pressed to issue shutdown. (default: ${default.offDuration})"
       )
+      val desktop: Opt[Boolean] = opt(name = "desktop", default = Some(default.desktop),
+        descr = "Use on desktop where no GPIO is present."
+      )
       verify()
       val config: Config = Config(
         gpioLeftA   = gpioLeftA(),
@@ -61,6 +65,7 @@ object Dials {
         gpioRightA  = gpioRightA(),
         gpioRightB  = gpioRightB(),
         offDuration = offDuration(),
+        desktop     = desktop(),
       )
     }
 
@@ -115,7 +120,17 @@ object Dials {
   case class Right(dir: Int) extends Update
   case object Off extends Update
 
-  def run(config: Config): Model[Update] = {
+  trait Model extends model.Model[Update] {
+    def ! (update: Update): Unit
+  }
+
+  def run(config: Config): Model = {
+    object model extends ModelImpl[Update] with Model {
+      override def !(update: Update): Unit = dispatch(update)
+    }
+
+    if (config.desktop) return model
+
     val gpio      = GpioFactory.getInstance
     val pinLeftA  = parsePin(config.gpioLeftA)
     val pinLeftB  = parsePin(config.gpioLeftB)
@@ -146,26 +161,25 @@ object Dials {
     val inPowerOff  = gpio.provisionDigitalInputPin(pinPowerOff, PinPullResistance.PULL_UP)
     inPowerOff.setDebounce(20)
 
-    object model extends ModelImpl[Update] {
-      mkDial(pinLeftA , pinLeftB  )(inc => dispatch(Left (inc)))
-      mkDial(pinRightA, pinRightB )(inc => dispatch(Right(inc)))
-      inPowerOff.addListener(new GpioPinListenerDigital() {
-        private var timePressed = Long.MaxValue
-        private val durMillis   = (config.offDuration * 1000).toLong
-        override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
-          println(s"button: ${e.getState}")
-          val pressed = !e.getState.isHigh
-          val t       = System.currentTimeMillis()
-          if (pressed) {
-            timePressed = t
-          } else {
-            if ((t - durMillis) > timePressed) {
-              dispatch(Off)
-            }
+    mkDial(pinLeftA , pinLeftB  )(inc => model.!(Left (inc)))
+    mkDial(pinRightA, pinRightB )(inc => model.!(Right(inc)))
+
+    inPowerOff.addListener(new GpioPinListenerDigital() {
+      private var timePressed = Long.MaxValue
+      private val durMillis   = (config.offDuration * 1000).toLong
+      override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
+        println(s"button: ${e.getState}")
+        val pressed = !e.getState.isHigh
+        val t       = System.currentTimeMillis()
+        if (pressed) {
+          timePressed = t
+        } else {
+          if ((t - durMillis) > timePressed) {
+            model.!(Off)
           }
         }
-      })
-    }
+      }
+    })
 
     model
   }

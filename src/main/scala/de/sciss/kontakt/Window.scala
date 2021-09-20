@@ -25,8 +25,6 @@ import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon,
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
 import net.harawata.appdirs.AppDirsFactory
 import org.unbescape.html.HtmlEscape
-
-import java.time.temporal.TemporalUnit
 //import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
@@ -76,6 +74,7 @@ object Window {
                      dials        : Boolean = false,
                      minusMonths  : Int     = 1,
                      threshEntries: Boolean = true,
+                     desktop      : Boolean = false,
                    )
 
   object Entry {
@@ -204,6 +203,9 @@ object Window {
       val noThreshEntries: Opt[Boolean] = opt("no-thresh-entries", default = Some(!default.threshEntries),
         descr = "Do not apply history threshold to entries."
       )
+      val desktop: Opt[Boolean] = opt(name = "desktop", default = Some(default.desktop),
+        descr = "Use on desktop where no GPIO is present."
+      )
 
       verify()
       val config: Config = Config(
@@ -230,6 +232,7 @@ object Window {
         dials         = dials(),
         minusMonths   = minusMonths(),
         threshEntries = !noThreshEntries(),
+        desktop       = desktop(),
       )
     }
 
@@ -274,7 +277,17 @@ object Window {
     implicit val as: ActorSystem = ActorSystem()
     var view = Option.empty[View]
     if (config.hasView) Swing.onEDT {
-      view = Some(openView())
+      val _view = openView()
+      if (config.dials) {
+        val m = Dials.run(Dials.Config(desktop = config.desktop))
+        _view.installKeyboardDials(m)
+        m.addListener {
+          case Dials.Left (inc) => println(s"Left : $inc")
+          case Dials.Right(inc) => println(s"Right: $inc")
+          case Dials.Off        => quitOrShutdown()
+        }
+      }
+      view = Some(_view)
     }
 
     lazy val timer = new Timer
@@ -540,6 +553,8 @@ object Window {
   trait View {
     var left  : Option[Content]
     var right : Option[Content]
+
+    def installKeyboardDials(m: Dials.Model): Unit
   }
 
   def openView()(implicit config: Config): View = {
@@ -558,6 +573,31 @@ object Window {
       val res = new ViewSideImpl(alignRight = isLeft)
       res.font = textFont
       res
+    }
+
+    def installKeyboardDials(m: Dials.Model): Unit = {
+      val iMap = leftView.peer.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+      val aMap = leftView.peer.getActionMap
+      val nLeftDec  = "dial-left-dec"
+      val nLeftInc  = "dial-left-inc"
+      val nRightDec = "dial-right-dec"
+      val nRightInc = "dial-right-inc"
+      iMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), nLeftDec)
+      aMap.put(nLeftDec, new AbstractAction(nLeftDec) {
+        def actionPerformed(e: ActionEvent): Unit = m ! Dials.Left(-1)
+      })
+      iMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), nLeftInc)
+      aMap.put(nLeftInc, new AbstractAction(nLeftInc) {
+        def actionPerformed(e: ActionEvent): Unit = m ! Dials.Left(+1)
+      })
+      iMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), nRightDec)
+      aMap.put(nRightDec, new AbstractAction(nRightDec) {
+        def actionPerformed(e: ActionEvent): Unit = m ! Dials.Right(-1)
+      })
+      iMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), nRightInc)
+      aMap.put(nRightInc, new AbstractAction(nRightInc) {
+        def actionPerformed(e: ActionEvent): Unit = m ! Dials.Right(+1)
+      })
     }
 
     private val leftView  = mkSideView(isLeft = true  )
