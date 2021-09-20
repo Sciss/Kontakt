@@ -20,6 +20,7 @@ import akka.stream.IOResult
 import akka.stream.scaladsl.FileIO
 import de.sciss.file._
 import de.sciss.kontakt.Common.{fullVersion, shutdown}
+import de.sciss.numbers.Implicits._
 import de.sciss.scaladon.Mastodon.Scope
 import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
@@ -274,23 +275,36 @@ object Window {
     val date      = Date.from(odt.toInstant)
     println(s"The date and time: $date")
 
-    implicit val as: ActorSystem = ActorSystem()
-    var view = Option.empty[View]
-    if (config.hasView) Swing.onEDT {
-      val _view = openView()
-      if (config.dials) {
-        val m = Dials.run(Dials.Config(desktop = config.desktop))
-        _view.installKeyboardDials(m)
-        m.addListener {
-          case Dials.Left (inc) => println(s"Left : $inc")
-          case Dials.Right(inc) => println(s"Right: $inc")
-          case Dials.Off        => quitOrShutdown()
-        }
-      }
-      view = Some(_view)
+    var view          = Option.empty[View]
+
+    // sync group
+    val entriesSync   = new AnyRef
+    var globalEntries = Entries.empty
+    var entryLeftIdx  = -1
+    var entryRightIdx = -1
+    var globalSched   = Option.empty[TimerTask]
+
+    def setDefaultEntries(entries: Entries): Unit = {
+      val eLeft   = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
+      val eRight  = entries.head
+      setEntries(entries, eLeft, eRight)
     }
 
-    lazy val timer = new Timer
+    def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
+      fetchPair(eLeft, eRight).foreach { case (cOld, cNew) =>
+        entriesSync.synchronized {
+          globalEntries = entries
+          entryLeftIdx  = entries.seq.indexOf(eLeft)
+          entryRightIdx = entries.seq.indexOf(eRight)
+        }
+        Swing.onEDT {
+          view.foreach { v =>
+            v.left  = Some(cOld)
+            v.right = Some(cNew)
+          }
+        }
+      }
+    }
 
     def quitOrShutdown(): Unit = {
       log("About to shut down...")
@@ -298,6 +312,66 @@ object Window {
       writeLock.synchronized {
         if (config.shutdown) shutdown() else sys.exit()
       }
+    }
+
+    lazy val timer = new Timer
+
+    def trigFetch(): Unit = {
+      globalSched.foreach(_.cancel())
+      val tt: TimerTask = new TimerTask {
+        override def run(): Unit = entriesSync.synchronized {
+          val eLeft  = globalEntries.seq(entryLeftIdx  )
+          val eRight = globalEntries.seq(entryRightIdx )
+          setEntries(globalEntries, eLeft, eRight)
+        }
+      }
+      globalSched = Some(tt)
+      timer.schedule(tt, 1000L)
+    }
+
+    val dialsOps = if (!config.dials) None else {
+      val m = Dials.run(Dials.Config(desktop = config.desktop))
+      m.addListener {
+        case Dials.Left (inc) =>
+          if (config.verbose) println(s"Left  dial: $inc")
+          entriesSync.synchronized {
+            if (entryLeftIdx >= 0) {
+              // note: minus inc because sorted with newest on top
+              val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
+              if (newIdx != entryLeftIdx) {
+                entryLeftIdx = newIdx
+                trigFetch()
+              }
+            }
+          }
+
+        case Dials.Right(inc) =>
+          if (config.verbose) println(s"Right dial: $inc")
+          entriesSync.synchronized {
+            if (entryRightIdx >= 0) {
+              // note: minus inc because sorted with newest on top
+              val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
+              if (newIdx != entryRightIdx) {
+                entryRightIdx = newIdx
+                trigFetch()
+              }
+            }
+          }
+
+        case Dials.Off =>
+          println("Shutdown button pressed.")
+          quitOrShutdown()
+      }
+      Some(m)
+    }
+
+    implicit val as: ActorSystem = ActorSystem()
+    if (config.hasView) Swing.onEDT {
+      val _view = openView()
+      dialsOps.foreach { m =>
+        _view.installKeyboardDials(m)
+      }
+      view = Some(_view)
     }
 
     val entriesFut = if (config.skipUpdate) readCache() else {
@@ -313,14 +387,7 @@ object Window {
                   val hasNew = e1 != e0
                   log(s"Update checked. New contents? $hasNew")
                   if (hasNew && config.hasView) {
-                    fetchPair(e1.last, e1.head).foreach { case (cOld, cNew) =>
-                      Swing.onEDT {
-                        view.foreach { v =>
-                          v.left  = Some(cOld)
-                          v.right = Some(cNew)
-                        }
-                      }
-                    }
+                    setDefaultEntries(e1)
                   }
                 }
               }
@@ -331,17 +398,8 @@ object Window {
 
     val futAll = for {
       entries <- entriesFut
-      eLeft   = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
-      eRight  = entries.head
-      (cOld, cNew) <- fetchPair(eLeft, eRight)
     } yield {
-      if (config.hasView) Swing.onEDT {
-        view.foreach { v =>
-          v.left  = Some(cOld)
-          v.right = Some(cNew)
-        }
-      }
-      ()
+      if (config.hasView) setDefaultEntries(entries)
     }
 
     futAll.onComplete {
