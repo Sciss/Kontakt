@@ -27,6 +27,7 @@ lazy val root = project.in(file("."))
     libraryDependencies ++= Seq(
       "com.pi4j"            %  "pi4j-core"            % deps.main.pi4j,         // GPIO control
       "de.sciss"            %% "fileutil"             % deps.main.fileUtil,     // utility functions
+      "de.sciss"            %% "model"                % deps.main.model,        // mvc
       "de.sciss"            %% "numbers"              % deps.main.numbers,      // numeric utilities
       "de.sciss"            %% "scaladon"             % deps.main.scaladon,     // Mastodon client
       "de.sciss"            %% "serial"               % deps.main.serial,       // Serialization
@@ -47,6 +48,7 @@ lazy val deps = new {
 //    val commonsText = "1.9"
     val fileUtil    = "1.1.5"
     val imageJ      = "1.53j" // "1.47h"
+    val model       = "0.3.5"
     val mpicbg      = "1.4.1"
     val numbers     = "0.2.1"
     val pi4j        = "1.4"

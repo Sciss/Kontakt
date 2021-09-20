@@ -15,8 +15,11 @@ package de.sciss.kontakt
 
 import com.pi4j.io.gpio.event.{GpioPinDigitalStateChangeEvent, GpioPinListenerDigital}
 import com.pi4j.io.gpio.{GpioFactory, Pin, PinPullResistance, RaspiPin}
+import de.sciss.model.Model
+import de.sciss.model.impl.ModelImpl
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
+/** Controllers for the image dials and shutdown-button in the physical installation. */
 object Dials {
   case class Config(
                      gpioLeftA    : Int = 1,
@@ -24,6 +27,7 @@ object Dials {
                      gpioRightA   : Int = 5,
                      gpioRightB   : Int = 6,
                      gpioPowerOff : Int = 7,
+                     offDuration  : Float = 3f,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -47,19 +51,32 @@ object Dials {
         descr = s"GPIO pin id for right dial, second output (default: ${default.gpioRightB}).",
         validate = x => x >= 0 && x <= 7
       )
-
+      val offDuration: Opt[Float] = opt(name = "off-duration", default = Some(default.offDuration),
+        descr = s"Duration in seconds, for keeping pressed to issue shutdown. (default: ${default.offDuration})"
+      )
       verify()
       val config: Config = Config(
         gpioLeftA   = gpioLeftA(),
         gpioLeftB   = gpioLeftB(),
         gpioRightA  = gpioRightA(),
         gpioRightB  = gpioRightB(),
+        offDuration = offDuration(),
       )
     }
 
-    run(p.config)
+    val c = p.config
+    println("Dial")
+    val m = run(c)
+    m.addListener {
+      case Left(inc) =>
+        println(s"Left : $inc")
+      case Right(inc) =>
+        println(s"Right : $inc")
+      case Off =>
+        println("Button off.")
+        sys.exit()
+    }
   }
-
 
   private def parsePin(i: Int): Pin = i match {
     case  0 => RaspiPin.GPIO_00
@@ -93,9 +110,12 @@ object Dials {
       sys.error(s"Illegal pin $i")
   }
 
-  def run(config: Config): Unit = {
-    println("Dial")
+  sealed trait Update
+  case class Left (dir: Int) extends Update
+  case class Right(dir: Int) extends Update
+  case object Off extends Update
 
+  def run(config: Config): Model[Update] = {
     val gpio      = GpioFactory.getInstance
     val pinLeftA  = parsePin(config.gpioLeftA)
     val pinLeftB  = parsePin(config.gpioLeftB)
@@ -122,17 +142,31 @@ object Dials {
       })
     }
 
-    mkDial(pinLeftA , pinLeftB  )(inc => println(s"Left : $inc"))
-    mkDial(pinRightA, pinRightB )(inc => println(s"Right: $inc"))
-
     val pinPowerOff = parsePin(config.gpioPowerOff)
     val inPowerOff  = gpio.provisionDigitalInputPin(pinPowerOff, PinPullResistance.PULL_UP)
     inPowerOff.setDebounce(20)
-    inPowerOff.addListener(new GpioPinListenerDigital() {
-      override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
-        val pressed = !e.getState.isHigh
-        println(s"Power: $pressed")
-      }
-    })
+
+    object model extends ModelImpl[Update] {
+      mkDial(pinLeftA , pinLeftB  )(inc => dispatch(Left (inc)))
+      mkDial(pinRightA, pinRightB )(inc => dispatch(Right(inc)))
+      inPowerOff.addListener(new GpioPinListenerDigital() {
+        private var timePressed = Long.MaxValue
+        private val durMillis   = (config.offDuration * 1000).toLong
+        override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
+          println(s"button: ${e.getState}")
+          val pressed = !e.getState.isHigh
+          val t       = System.currentTimeMillis()
+          if (pressed) {
+            timePressed = t
+          } else {
+            if ((t - durMillis) > timePressed) {
+              dispatch(Off)
+            }
+          }
+        }
+      })
+    }
+
+    model
   }
 }

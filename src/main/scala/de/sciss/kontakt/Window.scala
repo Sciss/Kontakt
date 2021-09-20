@@ -25,6 +25,8 @@ import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon,
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
 import net.harawata.appdirs.AppDirsFactory
 import org.unbescape.html.HtmlEscape
+
+import java.time.temporal.TemporalUnit
 //import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
@@ -45,7 +47,7 @@ import scala.swing.{BoxPanel, Component, Dimension, Graphics2D, MainFrame, Orien
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
-/** This is the code for the physical installation at Reagenz.
+/** This is the code for the physical installation at Reagenz and Glowing Globe.
   */
 object Window {
   case class Config(
@@ -54,6 +56,7 @@ object Window {
                      verbose      : Boolean = false,
                      initDelay    : Int     = 120,
                      shutdownHour : Int     = 21,
+                     shutdown     : Boolean = true,
                      baseURI      : String  = "botsin.space",
                      accountId    : Id      = Id("304274"),
                      imgExtent    : Int     = 816,
@@ -70,6 +73,9 @@ object Window {
                      textXPad     : Int     = 36,
                      fontSize     : Double  = 20.0,
                      crossEyed    : Boolean = false,
+                     dials        : Boolean = false,
+                     minusMonths  : Int     = 1,
+                     threshEntries: Boolean = true,
                    )
 
   object Entry {
@@ -181,10 +187,22 @@ object Window {
       val crossEyed: Opt[Boolean] = opt("cross-eyed", default = Some(default.crossEyed),
         descr = "Render for cross-eyed viewing instead of stereoscopic lenses"
       )
-      val shutdownHour: Opt[Int] = opt("shutdown",
-        descr = s"Hour of Pi shutdown (or 0 to avoid shutdown) (default: ${default.shutdownHour})",
+      val shutdownHour: Opt[Int] = opt("shutdown-hour",
+        descr = s"Hour of Pi shutdown (or 0 to avoid scheduled shutdown) (default: ${default.shutdownHour})",
         default = Some(default.shutdownHour),
         validate = x => x >= 0 && x <= 24
+      )
+      val noShutdown: Opt[Boolean] = opt("no-shutdown", default = Some(!default.shutdown),
+        descr = "Do not shutdown Pi after completion."
+      )
+      val dials: Opt[Boolean] = opt("dials", default = Some(default.dials),
+        descr = "Installation has physical left/right dials and shutdown button."
+      )
+      val minusMonths: Opt[Int] = opt("minus-months", default = Some(default.minusMonths),
+        descr = s"Number of months between left and right image (default: ${default.minusMonths})."
+      )
+      val noThreshEntries: Opt[Boolean] = opt("no-thresh-entries", default = Some(!default.threshEntries),
+        descr = "Do not apply history threshold to entries."
       )
 
       verify()
@@ -208,6 +226,10 @@ object Window {
         crossEyed     = crossEyed(),
         shutdownHour  = shutdownHour(),
         updateMinutes = updateMinutes(),
+        shutdown      = !noShutdown(),
+        dials         = dials(),
+        minusMonths   = minusMonths(),
+        threshEntries = !noThreshEntries(),
       )
     }
 
@@ -257,6 +279,14 @@ object Window {
 
     lazy val timer = new Timer
 
+    def quitOrShutdown(): Unit = {
+      log("About to shut down...")
+      if (config.shutdown) Thread.sleep(8000)
+      writeLock.synchronized {
+        if (config.shutdown) shutdown() else sys.exit()
+      }
+    }
+
     val entriesFut = if (config.skipUpdate) readCache() else {
       login().flatMap { implicit li =>
         val e0Fut = updateEntries()
@@ -270,7 +300,7 @@ object Window {
                   val hasNew = e1 != e0
                   log(s"Update checked. New contents? $hasNew")
                   if (hasNew && config.hasView) {
-                    fetchPair(e1).foreach { case (cOld, cNew) =>
+                    fetchPair(e1.last, e1.head).foreach { case (cOld, cNew) =>
                       Swing.onEDT {
                         view.foreach { v =>
                           v.left  = Some(cOld)
@@ -288,7 +318,9 @@ object Window {
 
     val futAll = for {
       entries <- entriesFut
-      (cOld, cNew) <- fetchPair(entries)
+      eLeft   = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
+      eRight  = entries.head
+      (cOld, cNew) <- fetchPair(eLeft, eRight)
     } yield {
       if (config.hasView) Swing.onEDT {
         view.foreach { v =>
@@ -314,17 +346,11 @@ object Window {
       }
       val dateSD  = Date.from(odtSD.toInstant)
       timer.schedule(new TimerTask {
-        override def run(): Unit = {
-          log("About to shut down...")
-          Thread.sleep(8000)
-          writeLock.synchronized {
-            shutdown()
-          }
-        }
+        override def run(): Unit = quitOrShutdown()
       }, dateSD)
       log(s"Shutdown scheduled for $dateSD")
     }
-  }
+  } // end run
 
   def appName   : String = "kontakt"
   def appAuthor : String = "de.sciss"
@@ -486,7 +512,7 @@ object Window {
   }
 
   // note: also fails if entries is empty
-  def fetchPair(entries: Entries) /*(implicit config: Config)*/: Future[(Content, Content)] =
+  def fetchPair(eLeft: Entry, eRight: Entry) /*(implicit config: Config)*/: Future[(Content, Content)] =
     Future {
       def readOne(e: Entry): Content = {
         val f = localImageFile(e)
@@ -502,8 +528,8 @@ object Window {
         Content(textTop = text, textBottom = text, image = image)
       }
 
-      val l0    = readOne(entries.last)
-      val r0    = readOne(entries.head)
+      val l0    = readOne(eLeft ) // entries.last)
+      val r0    = readOne(eRight) // entries.head)
       val left  = l0.copy(textBottom  = r0.textBottom)
       val right = r0.copy(textTop     = l0.textTop   )
 
@@ -718,12 +744,16 @@ object Window {
   def localImageFile(e: Entry): File =
     photoDir / s"${e.id.value}.jpg"
 
-  def truncateEntries(in: Entries): Entries = if (in.isEmpty) in else {
-    val newest    = in.head.createdAt
-    val thresh    = newest.minusMonths(1).minusHours(2)
-    val valid     = in.seq.segmentLength(_.createdAt.isAfter(thresh))
-    in.take(valid)
-  }
+  def closestIndex(in: Entries, date: ZonedDateTime): Entry =
+    in.seq.minBy(e => math.abs(e.createdAt.until(date, ChronoUnit.HOURS)))
+
+  def truncateEntries(in: Entries)(implicit config: Config): Entries =
+    if (in.isEmpty || !config.threshEntries) in else {
+      val newest    = in.head.createdAt
+      val thresh    = newest.minusMonths(config.minusMonths).minusHours(2)
+      val valid     = in.seq.segmentLength(_.createdAt.isAfter(thresh))
+      in.take(valid)
+    }
 
   def updateEntries()(implicit config: Config, li: Login): Future[Entries] = {
     import config._
