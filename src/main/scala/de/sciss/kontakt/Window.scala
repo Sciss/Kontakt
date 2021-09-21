@@ -352,7 +352,7 @@ object Window {
     }
 
     val dialsOps = if (!config.dials) None else {
-      val m = Dials.run(Dials.Config(desktop = config.desktop))
+      val m = Dials.run(Dials.Config(desktop = config.desktop), timer)
       m.addListener {
         case Dials.Left(inc) =>
           if (config.verbose) println(s"Left  dial: $inc")

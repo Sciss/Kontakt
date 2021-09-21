@@ -19,6 +19,8 @@ import de.sciss.model
 import de.sciss.model.impl.ModelImpl
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
+import java.util.{Timer, TimerTask}
+
 /** Controllers for the image dials and shutdown-button in the physical installation. */
 object Dials {
   case class Config(
@@ -71,7 +73,8 @@ object Dials {
 
     val c = p.config
     println("Dial")
-    val m = run(c)
+    val timer = new Timer
+    val m = run(c, timer)
     m.addListener {
       case Left(inc) =>
         println(s"Left : $inc")
@@ -124,7 +127,7 @@ object Dials {
     def ! (update: Update): Unit
   }
 
-  def run(config: Config): Model = {
+  def run(config: Config, timer: Timer): Model = {
     object model extends ModelImpl[Update] with Model {
       override def !(update: Update): Unit = dispatch(update)
     }
@@ -165,18 +168,28 @@ object Dials {
     mkDial(pinRightA, pinRightB )(inc => model.!(Right(inc)))
 
     inPowerOff.addListener(new GpioPinListenerDigital() {
-      private var timePressed = Long.MaxValue
+//      private var timePressed = Long.MaxValue
       private val durMillis   = (config.offDuration * 1000).toLong
+
+      private var scheduled   = Option.empty[TimerTask]
+
       override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
         println(s"button: ${e.getState}")
         val pressed = !e.getState.isHigh
-        val t       = System.currentTimeMillis()
+//        val t       = System.currentTimeMillis()
+        scheduled.foreach(_.cancel())
+        scheduled = None
         if (pressed) {
-          timePressed = t
-        } else {
-          if ((t - durMillis) > timePressed) {
-            model.!(Off)
+          val tt = new TimerTask {
+            override def run(): Unit = model.!(Off)
           }
+          timer.schedule(tt, durMillis)
+//          timePressed = t
+          scheduled = Some(tt)
+//        } else {
+//          if ((t - durMillis) > timePressed) {
+//            model.!(Off)
+//          }
         }
       }
     })
