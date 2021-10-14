@@ -1,6 +1,6 @@
 lazy val baseName       = "Kontakt"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.5.0"
+lazy val projectVersion = "0.5.1"
 
 lazy val buildInfoSettings = Seq(
   // ---- build info ----

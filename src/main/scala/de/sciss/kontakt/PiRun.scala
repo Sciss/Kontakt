@@ -38,8 +38,9 @@ object PiRun {
                    initDelay      : Int     =   120,
                    preCropLeft    : Int     =   500,
                    preCropRight   : Int     =   500,
-                   shutterDay     : Int     =  5000,
                    shutterMorning : Int     = 10000,
+                   shutterDay     : Int     =  5000,
+                   shutterEvening : Int     = 10000,
                    shutterNight   : Int     = 15000,
                    pumpTimeOut    : Int     =    90,
                    httpConnTimeOut: Int     =    20,  // ! Akka default of 10s is too low
@@ -80,11 +81,14 @@ object PiRun {
       val preCropRight: Opt[Int] = opt("pre-crop-right", default = Some(default.preCropRight),
         descr = s"Pre-analysis pre-scaling crop of right side (default: ${default.preCropRight})."
       )
+      val shutterMorning: Opt[Int] = opt("shutter-morning", default = Some(default.shutterMorning),
+        descr = s"Shutter time in microseconds during the morning (default: ${default.shutterMorning})."
+      )
       val shutterDay: Opt[Int] = opt("shutter-day", default = Some(default.shutterDay),
         descr = s"Shutter time in microseconds during the day (default: ${default.shutterDay})."
       )
-      val shutterMorning: Opt[Int] = opt("shutter-morning", default = Some(default.shutterMorning),
-        descr = s"Shutter time in microseconds during the morning (default: ${default.shutterMorning})."
+      val shutterEvening: Opt[Int] = opt("shutter-evening", default = Some(default.shutterEvening),
+        descr = s"Shutter time in microseconds during the evening (default: ${default.shutterEvening})."
       )
       val shutterNight: Opt[Int] = opt("shutter-night", default = Some(default.shutterNight),
         descr = s"Shutter time in microseconds during the night (default: ${default.shutterNight})."
@@ -118,8 +122,9 @@ object PiRun {
         initDelay       = initDelay(),
         preCropLeft     = preCropLeft(),
         preCropRight    = preCropRight(),
-        shutterDay      = shutterDay(),
         shutterMorning  = shutterMorning(),
+        shutterDay      = shutterDay(),
+        shutterEvening  = shutterEvening(),
         shutterNight    = shutterNight(),
         pumpTimeOut     = pumpTimeOut(),
         verbose         = verbose(),
@@ -174,10 +179,15 @@ object PiRun {
     val odt       = OffsetDateTime.now()
     val dateStr   = odt.withNano(0).toString
     val date      = Date.from(odt.toInstant)
-    val isMorning = odt.getHour > 4 && odt.getHour < 8
-    val isDay     = odt.getHour > 8 && odt.getHour < 20
+    val isMorning = odt.getHour > 4  && odt.getHour <= 8
+    val isDay     = odt.getHour > 8  && odt.getHour <= 16
+    val isEvening = odt.getHour > 16 && odt.getHour <= 20
     println(s"Making photo (isDay? $isDay; isMorning? $isMorning)...")
-    val shutter   = if (isDay) c.shutterDay else if (isMorning) c.shutterMorning else c.shutterNight
+    val shutter   =
+      if      (isDay    ) c.shutterDay
+      else if (isMorning) c.shutterMorning
+      else if (isEvening) c.shutterEvening
+      else                c.shutterNight
     val dirPhoto  = new File("photos").getCanonicalFile
     val fPhoto    = stampedFile(dirPhoto, pre = "snap", ext = "jpg", date = date)
 

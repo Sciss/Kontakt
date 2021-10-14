@@ -62,3 +62,7 @@ with an unofficial one!
     git clone https://github.com/WiringPi/WiringPi --branch master --single-branch wiringpi
     cd wiringpi
     sudo ./build
+
+## change-log
+
+- v0.5.1; add 'evening' shutter time (14-Oct-2021)
