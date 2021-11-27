@@ -38,9 +38,9 @@ object PiRun {
                    initDelay      : Int     =   120,
                    preCropLeft    : Int     =   500,
                    preCropRight   : Int     =   500,
-                   shutterMorning : Int     = 10000,
-                   shutterDay     : Int     =  5000,
-                   shutterEvening : Int     = 10000,
+                   shutterMorning : Int     = 12500,
+                   shutterDay     : Int     = 10000,
+                   shutterEvening : Int     = 12500,
                    shutterNight   : Int     = 15000,
                    pumpTimeOut    : Int     =    90,
                    httpConnTimeOut: Int     =    20,  // ! Akka default of 10s is too low
