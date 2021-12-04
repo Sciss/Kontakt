@@ -13,10 +13,11 @@
 
 package de.sciss.kontakt
 
+import akka.actor.ActorSystem
 import de.sciss.file._
 import de.sciss.kontakt.Common.{fullVersion, shutdown}
-import de.sciss.scaladon.Status
-import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
+import de.sciss.scaladon.{Id, Status}
+import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
 import java.io.{File, PrintStream}
 import java.text.SimpleDateFormat
@@ -25,8 +26,8 @@ import java.util.concurrent.TimeUnit
 import java.util.{Date, Locale}
 import scala.annotation.tailrec
 import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.{Duration => SDuration}
-import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
 /** This is the code for observing the experiment, taking and uploading photos.
@@ -50,7 +51,9 @@ object PiRun {
                    verbose        : Boolean = false,
                    shutdown       : Boolean = true,
                    tootAttempts   : Int     = 2,
-                   )
+                   baseURI        : String  = "botsin.space",
+                   accountId      : Id      = Id("304274"),
+                   ) extends Login.Config
 
   final def name          : String = "Kontakt"
   final def nameAndVersion: String = s"$name $fullVersion"
@@ -62,6 +65,9 @@ object PiRun {
       printedName = PiRun.nameAndVersion
 
       private val default = Config()
+
+      implicit val idConverter: ValueConverter[Id] =
+        singleArgConverter(new Id(_), PartialFunction.empty)  // Note: important to provide default arg (Dotty)
 
       val verbose: Opt[Boolean] = opt("verbose", short = 'V', default = Some(false),
         descr = "Verbose printing."
@@ -114,6 +120,12 @@ object PiRun {
       val tootAttempts: Opt[Int] = opt("toot-attempts", default = Some(default.tootAttempts),
         descr = s"Attempts to toot photo, if there are network problems (default: ${default.tootAttempts})."
       )
+      val baseURI: Opt[String] = opt("base-uri", short = 'b', default = Some(default.baseURI),
+        descr = s"Mastodon instance base URI (default: ${default.baseURI})."
+      )
+      val accountId: Opt[Id] = opt("account", short = 'a', default = Some(default.accountId),
+        descr = s"Mastodon user id (default: ${default.accountId})."
+      )
 
       verify()
       val config: Config = Config(
@@ -134,12 +146,14 @@ object PiRun {
         httpIdleTimeOut = httpIdleTimeOut(),
         httpConnTimeOut = httpConnTimeOut(),
         tootAttempts    = tootAttempts(),
+        baseURI         = baseURI(),
+        accountId       = accountId(),
       )
     }
-    run(p.config)
+    run()(p.config)
   }
 
-  def run(c: Config): Unit = {
+  def run()(implicit c: Config): Unit = {
     println(PiRun.nameAndVersion)
 
     // cf. https://github.com/Sciss/scaladon/issues/1
@@ -260,26 +274,32 @@ object PiRun {
         println("Tooting photo...")
         val dateZero  = OffsetDateTime.parse("2021-06-19T04:00:00+02:00") // begin on June 19th, 2021
         val dayIdx    = Duration.between(dateZero, odt).toDays.toInt
-        val annot     = try {
-          io.Source.fromInputStream(getClass.getResourceAsStream("/annotations.txt"), "UTF-8").getLines().drop(dayIdx).next()
-        } catch {
-          case NonFatal(ex) =>
+        implicit val as: ActorSystem = ActorSystem()
+        val futLogin  = Login(write = true)
+        implicit val cfgAnn: Annotations.Config = Annotations.Config(
+          verbose   = c.verbose,
+          accountId = c.accountId,
+          dayIdx    = dayIdx
+        )
+        val futAnn  = futLogin.flatMap { login => Annotations.obtain(login) }
+        val trAnn   = Try { Await.result(futAnn, SDuration(30, TimeUnit.SECONDS)) }
+        val ann     = trAnn match {
+          case Success(s) => s
+          case Failure(ex) =>
             logFailure("annot", ex)
             "we're still trying to make contact..."
         }
-        val text      = s"The time is $dateStr - $annot"
+
+        val text      = s"The time is $dateStr - $ann"
         val cToot = TootPhoto.Config(
-          username  = c.username,
-          password  = c.password,
           imgFile   = fPhotoCrop,
           text      = text,
-          verbose   = c.verbose,
         )
 
         @tailrec
         def attemptToot(attempt: Int): Unit = {
           if (attempt > 1) println(s"Attempt no. $attempt...")
-          val futToot = TootPhoto.run(cToot)
+          val futToot = futLogin.flatMap { login => TootPhoto(login)(cToot) }
           val trToot  = Try { Await.ready(futToot, SDuration(60, TimeUnit.SECONDS)) }
           val resToot: Try[Status] = trToot.flatMap { _ => futToot.value.get }
 

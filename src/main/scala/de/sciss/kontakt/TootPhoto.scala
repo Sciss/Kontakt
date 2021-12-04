@@ -15,8 +15,7 @@ package de.sciss.kontakt
 
 import akka.actor.ActorSystem
 import de.sciss.scaladon.Mastodon.Scope
-import de.sciss.scaladon.{Mastodon, Status, Visibility}
-import net.harawata.appdirs.AppDirsFactory
+import de.sciss.scaladon.{Status, Visibility}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
@@ -26,7 +25,7 @@ import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success}
 
 object TootPhoto {
-  case class Config(
+  case class FullConfig(
                      username   : String          = "user",
                      password   : String          = "pass",
                      imgFile    : File            = new File("out.jpg"),
@@ -35,14 +34,28 @@ object TootPhoto {
                      spoiler    : Option[String]  = None,
                      verbose    : Boolean         = false,
                      baseURI    : String          = "botsin.space"
-                   )
+                   ) extends Login.Config with ConfigBase
+
+  case class Config(
+                     imgFile    : File            = new File("out.jpg"),
+                     text       : String          = "Still trying to make contact...",
+                     imgDescr   : String          = "Photograph of a glass plate with lichen fragments",
+                     spoiler    : Option[String]  = None,
+                   ) extends ConfigBase
+
+  trait ConfigBase {
+    def imgFile    : File
+    def imgDescr   : String
+    def text       : String
+    def spoiler    : Option[String]
+  }
 
   def main(args: Array[String]): Unit = {
 
     object p extends ScallopConf(args) {
       printedName = "CropPhoto"
       //      version(fullName)
-      private val default = Config()
+      private val default = FullConfig()
 
       val imgFile: Opt[File] = opt("input", short = 'i', required = true,
         descr = "Processed photo file to be tooted."
@@ -67,7 +80,7 @@ object TootPhoto {
       )
 
       verify()
-      val config: Config = Config(
+      val config: FullConfig = FullConfig(
         username        = username(),
         password        = password(),
         imgFile         = imgFile(),
@@ -77,7 +90,7 @@ object TootPhoto {
         baseURI         = baseURI(),
       )
     }
-    val fut = run(p.config)
+    val fut = run()(p.config)
     Await.ready(fut, Duration.Inf)
     fut.value.get match {
       case Success(data) =>
@@ -92,38 +105,31 @@ object TootPhoto {
     }
   }
 
-  def run(config: Config): Future[Status] = {
+  def apply(login: Login)(implicit config: ConfigBase): Future[Status] = {
     import config._
+    import login._
+    val futAtt = app.Statuses.uploadMedia(
+      imgFile,
+      description = Some(imgDescr),
+      // focus = Some(MediaFocus(1.0f, 0.0f))
+    )(token)
+    futAtt.flatMap { att =>
+      app.Statuses.post(
+        status      = text,
+        visibility  = Visibility.Public,
+        mediaIds    = att.id :: Nil,
+        sensitive   = false,
+        spoilerText = spoiler,
+      )(token)
+    }
+  }
 
-    val appDirs     = AppDirsFactory.getInstance
-    val configBase  = appDirs.getUserConfigDir("kontakt", /* version */ null, /* author */ "de.sciss")
-//    println(configBase)
-
-//    println(Scope.all.mkString(" "))
-//    sys.exit()
-
+  def run()(implicit config: FullConfig): Future[Status] = {
     implicit val as: ActorSystem = ActorSystem()
 
     val testFut = for {
-      app   <- Mastodon.createApp(baseURI = baseURI, clientName = "kontakt_tooter",
-        scopes = Set(Scope.Read, Scope.Write), storageLoc = configBase)
-      token <- app.login(username = username, password = password)
-      res   <- {
-        val futAtt = app.Statuses.uploadMedia(
-          imgFile,
-          description = Some(imgDescr),
-//          focus = Some(MediaFocus(1.0f, 0.0f))
-        )(token)
-        futAtt.flatMap { att =>
-          app.Statuses.post(
-            status      = text,
-            visibility  = Visibility.Public,
-            mediaIds    = att.id :: Nil,
-            sensitive   = false,
-            spoilerText = spoiler,
-          )(token)
-        }
-      }
+      login <- Login(write = true)
+      res   <- this.apply(login)
     } yield {
       res
     }

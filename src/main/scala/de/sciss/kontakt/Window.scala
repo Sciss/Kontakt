@@ -19,14 +19,12 @@ import akka.http.scaladsl.model.HttpRequest
 import akka.stream.IOResult
 import akka.stream.scaladsl.FileIO
 import de.sciss.file._
-import de.sciss.kontakt.Common.{fullVersion, shutdown}
+import de.sciss.kontakt.Common.{fullVersion, htmlToPlain, idLong, longId, shutdown}
+import de.sciss.kontakt.Login.{appAuthor, appName}
 import de.sciss.numbers.Implicits._
-import de.sciss.scaladon.Mastodon.Scope
-import de.sciss.scaladon.{AccessToken, Attachment, AttachmentType, Id, Mastodon, Status, Visibility}
+import de.sciss.scaladon.{Attachment, AttachmentType, Id, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
 import net.harawata.appdirs.AppDirsFactory
-import org.unbescape.html.HtmlEscape
-//import org.apache.commons.text.StringEscapeUtils
 import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, ScallopOption => Opt}
 
 import java.awt.event.{ActionEvent, InputEvent, KeyEvent}
@@ -78,6 +76,7 @@ object Window {
                      desktop      : Boolean = false,
                      overlayInset : Int     = 168,
                    )
+    extends Login.Config
 
   object Entry {
     implicit object ser extends ConstFormat[Entry] {
@@ -401,7 +400,7 @@ object Window {
     }
 
     val entriesFut = if (config.skipUpdate) readCache() else {
-      login().flatMap { implicit li =>
+      Login(write = false).flatMap { implicit li =>
         val e0Fut = updateEntries()
         if (config.skipUpdate || config.updateMinutes == 0) e0Fut else e0Fut.andThen {
           case Success(e0) =>
@@ -448,37 +447,6 @@ object Window {
       log(s"Shutdown scheduled for $dateSD")
     }
   } // end run
-
-  def appName   : String = "kontakt"
-  def appAuthor : String = "de.sciss"
-
-  private def longId(x: Id): Long =
-    try {
-      x.value.toLong
-    } catch {
-      case _: Exception => -1L
-    }
-
-  private def idLong(x: Long): Id = Id(x.toString)
-
-  class Login(val app: Mastodon,
-              implicit val token: AccessToken,
-              implicit val actorSystem: ActorSystem
-             )
-
-  def login()(implicit config: Config, as: ActorSystem): Future[Login] = {
-    import config._
-
-    val appDirs     = AppDirsFactory.getInstance
-    val configBase  = appDirs.getUserConfigDir(appName, /* version */ null, /* author */ appAuthor)
-
-    for {
-      app <- Mastodon.createApp(baseURI = baseURI, clientName = "kontakt_tooter",
-        scopes = Set(Scope.Read), storageLoc = configBase)
-      token <- app.login(username = username, password = password)
-    } yield
-      new Login(app, token, as)
-  }
 
   object Entries {
     def empty: Entries = Entries(Nil)
@@ -590,23 +558,6 @@ object Window {
                     textBottom: String,
                     image     : BufferedImage,
                     )
-
-  def htmlToPlain(str: String): String = {
-    val t0        = str.trim
-    val tagStart  = "<p>"
-    val tagEnd    = "</p>"
-    val t   = if (t0.startsWith(tagStart) && t0.endsWith(tagEnd)) {
-      t0.substring(tagStart.length, t0.length - tagEnd.length)
-    } else {
-      t0
-    }
-    // cf. https://github.com/tootsuite/documentation/issues/884
-    // cf. https://stackoverflow.com/questions/21883496/how-to-decode-xhtml-and-or-html5-entities-in-java
-//    val u0 = StringEscapeUtils.unescapeXml(t)
-//    u0 // StringEscapeUtils.unescapeHtml4(u0)
-//    StringEscapeUtils.unescapeHtml4(t.replace("&apos;", "\'"))
-    HtmlEscape.unescapeHtml(t)
-  }
 
   // note: also fails if entries is empty
   def fetchPair(eLeft: Entry, eRight: Entry) /*(implicit config: Config)*/: Future[(Content, Content)] =
@@ -752,7 +703,7 @@ object Window {
                                   )(implicit config: Config)
     extends Component {
 
-    import config.{crossEyed, crossHair, imgCrop, imgExtent, panelHeight, panelWidth, textXPad, textYPad}
+    import config._
 
     opaque        = true
     preferredSize = new Dimension(panelWidth, panelHeight)

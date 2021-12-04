@@ -63,6 +63,14 @@ with an unofficial one!
     cd wiringpi
     sudo ./build
 
+## annotations
+
+Instead of keeping "all" annotations in the source code in one resource file -- having to update the software
+with new annotations -- these are now pulled from the same Mastodon account, by polling private DMs
+"addressed to itself", using CW (spoiler) "annot". People can still DM the account, but the confirmation step is to 
+toot the annotation  from the Kontakt account to itself.
+
 ## change-log
 
 - v0.5.1; add 'evening' shutter time (14-Oct-2021)
+- v0.6.0; refactor `Login`; download new annotations from Mastodon DMs (04-Dec-2021)
