@@ -9,5 +9,6 @@ project/boot/
 /.bsp/
 /kontakt.jar
 /run-window.sh
+/run.sh
 */*.mllt/*.csv
 
