@@ -316,11 +316,12 @@ object Annotations {
           }
           val newEntries  = newEntries0.sorted  // oldest till newest
           val combined    = oldEntries.insert(newEntries)
-          if (sinceId.isDefined && newStatuses.size < limit) {
+          if (maxId /*sinceId*/.isDefined && newStatuses.size < limit) {
             Future.successful(combined)
           } else {
             val newSinceId = idLong(newStatuses.map(status => longId(status.id)).max)
-            updateLoop(combined, sinceId = Some(newSinceId), maxId = maxId)
+            val newMaxId   = idLong(newStatuses.map(status => longId(status.id)).min)
+            updateLoop(combined, sinceId = sinceId /*Some(newSinceId)*/, maxId = Some(newMaxId) /*maxId*/)
           }
         }
       }
