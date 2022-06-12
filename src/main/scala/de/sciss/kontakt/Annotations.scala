@@ -26,18 +26,21 @@ object Annotations {
                      wipeApp  : Boolean = false,
                      wipeCache: Boolean = false,
                      dayIdx   : Int     = -1,
+                     printAll : Boolean = false,
                    ) extends ConfigBase with Login.Config
 
   trait ConfigBase {
     def verbose  : Boolean
     val accountId: Id
     def dayIdx   : Int
+    def printAll : Boolean
   }
 
   case class Config(
     verbose  : Boolean = false,
     accountId: Id      = Id("304274"),
-    dayIdx   : Int
+    dayIdx   : Int,
+    printAll : Boolean  = false,
   ) extends ConfigBase
 
   val DAYS_IN_RESOURCES = 172
@@ -84,6 +87,7 @@ object Annotations {
       val dayIdx: Opt[Int] = opt("day-index", short = 'd',
         descr = "Override automatic day index."
       )
+      val printAll: Opt[Boolean] = toggle(descrYes = "Print all annotations")
 
       verify()
       val config: FullConfig = FullConfig(
@@ -95,6 +99,7 @@ object Annotations {
         wipeApp         = wipeApp(),
         wipeCache       = wipeCache(),
         dayIdx          = dayIdx.getOrElse(defaultDayIndex()),
+        printAll        = printAll(),
       )
     }
     val fut = run()(p.config)
@@ -200,6 +205,11 @@ object Annotations {
       }
     else {
       updateEntries(login).map { entries =>
+        if (config.printAll) {
+          println("---- all annotations ----")
+          entries.seq.foreach(println)
+          println("---- ----")
+        }
         val entry = entries.seq(dayIdxOff)
         Common.htmlToPlain(entry.content)
       }

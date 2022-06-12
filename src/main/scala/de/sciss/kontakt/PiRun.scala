@@ -279,7 +279,7 @@ object PiRun {
         implicit val cfgAnn: Annotations.Config = Annotations.Config(
           verbose   = c.verbose,
           accountId = c.accountId,
-          dayIdx    = dayIdx
+          dayIdx    = dayIdx,
         )
         val futAnn  = futLogin.flatMap { login => Annotations.obtain(login) }
         val trAnn   = Try { Await.result(futAnn, SDuration(30, TimeUnit.SECONDS)) }
