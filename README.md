@@ -70,6 +70,12 @@ with new annotations -- these are now pulled from the same Mastodon account, by 
 "addressed to itself", using CW (spoiler) "annot". People can still DM the account, but the confirmation step is to 
 toot the annotation  from the Kontakt account to itself.
 
+## updating the table-top version
+
+```
+java -cp kontakt.jar de.sciss.kontakt.Window --user USER --pass PASS --verbose --init-delay 0 --shutdown-hour 0 --no-thresh-entries --no-view
+```
+
 ## change-log
 
 - v0.5.1; add 'evening' shutter time (14-Oct-2021)
