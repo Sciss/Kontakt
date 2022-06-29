@@ -309,6 +309,7 @@ object Window {
     var entryLeftOver   = ""
     var entryRightOver  = ""
     var globalSched     = Option.empty[TimerTask]
+    var overlaySched    = Option.empty[TimerTask]
     lazy val rnd        = new Random()
 
     def setRandomEntries(entries: Entries): Unit = {
@@ -319,6 +320,9 @@ object Window {
       val eLeft       = entries.seq(idxLeft)
       val eRight      = closestIndex(entries, eLeft.createdAt.plusDays(daysSpace))
       log(s"Random movement (${eLeft.createdAt}, ${eRight.createdAt})")
+      entryLeftOver   = eLeft .createdAt.toString
+      entryRightOver  = eRight.createdAt.toString
+      setOverlays()
       setEntries(entries, eLeft, eRight)
     }
 
@@ -336,18 +340,23 @@ object Window {
     def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
       fetchPair(eLeft, eRight).foreach { case (cOld, cNew) =>
         entriesSync.synchronized {
-          globalEntries   = entries
-          entryLeftIdx    = entries.seq.indexOf(eLeft)
-          entryRightIdx   = entries.seq.indexOf(eRight)
-          entryLeftOver   = ""
-          entryRightOver  = ""
+          globalEntries = entries
+          entryLeftIdx  = entries.seq.indexOf(eLeft)
+          entryRightIdx = entries.seq.indexOf(eRight)
+          overlaySched.foreach(_.cancel())
+          val tt: TimerTask = new TimerTask {
+            override def run(): Unit = entriesSync.synchronized {
+              clearOverlays()
+            }
+          }
+          overlaySched = Some(tt)
+          timer.schedule(tt, 6000L)
         }
+
         Swing.onEDT {
           view.foreach { v =>
-            v.left          = Some(cOld)
-            v.right         = Some(cNew)
-            v.leftOverlay   = "" // "2021-09-20T12:01:06+02:00"
-            v.rightOverlay  = "" // "2021-09-20T06:01:06+02:00"
+            v.left      = Some(cOld)
+            v.right     = Some(cNew)
             v.sync()
           }
         }
@@ -364,17 +373,8 @@ object Window {
 
     lazy val timer = new ju.Timer
 
-    def trigFetch(): Unit = {
-      globalSched.foreach(_.cancel())
-      val tt: TimerTask = new TimerTask {
-        override def run(): Unit = entriesSync.synchronized {
-          val eLeft  = globalEntries.seq(entryLeftIdx  )
-          val eRight = globalEntries.seq(entryRightIdx )
-          setEntries(globalEntries, eLeft, eRight)
-        }
-      }
-      globalSched = Some(tt)
-      timer.schedule(tt, 1000L)
+    def setOverlays(): Unit = {
+      overlaySched.foreach(_.cancel())
       val leftOver  = entryLeftOver
       val rightOver = entryRightOver
       Swing.onEDT {
@@ -384,6 +384,33 @@ object Window {
           v.sync()
         }
       }
+    }
+
+    def clearOverlays(): Unit = {
+      entryLeftOver   = ""
+      entryRightOver  = ""
+      Swing.onEDT {
+        view.foreach { v =>
+          v.leftOverlay   = ""
+          v.rightOverlay  = ""
+          v.sync()
+        }
+      }
+    }
+
+    def trigFetch(): Unit = {
+      globalSched .foreach(_.cancel())
+      overlaySched.foreach(_.cancel())
+      val tt: TimerTask = new TimerTask {
+        override def run(): Unit = entriesSync.synchronized {
+          val eLeft  = globalEntries.seq(entryLeftIdx  )
+          val eRight = globalEntries.seq(entryRightIdx )
+          setEntries(globalEntries, eLeft, eRight)
+        }
+      }
+      globalSched = Some(tt)
+      timer.schedule(tt, 1000L)
+      setOverlays()
     }
 
     var idleSched = Option.empty[TimerTask]
