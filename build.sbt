@@ -1,6 +1,10 @@
 lazy val baseName       = "Kontakt"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.6.0-SNAPSHOT"
+lazy val projectVersion = "0.7.0-SNAPSHOT"
+
+lazy val gitHost        = "codeberg.org"
+lazy val gitUser        = "sciss"
+lazy val gitRepo        = baseName
 
 lazy val buildInfoSettings = Seq(
   // ---- build info ----
@@ -19,9 +23,9 @@ lazy val root = project.in(file("."))
     name         := baseName,
     description  := "A waiting piece of lichen growth",
     version      := projectVersion,
-    homepage     := Some(url(s"https://git.iem.at/sciss/$baseName")),
+    homepage     := Some(url(s"https://$gitHost/$gitUser/$gitRepo")),
     licenses     := Seq("AGPL v3+" -> url("http://www.gnu.org/licenses/agpl-3.0.txt")),
-    scalaVersion := "2.13.7",
+    scalaVersion := "2.13.8",
     scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature", "-encoding", "utf8"),
     resolvers    += "imagej.releases" at "https://maven.scijava.org/content/repositories/releases/",
     libraryDependencies ++= Seq(

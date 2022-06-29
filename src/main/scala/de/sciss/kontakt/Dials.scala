@@ -2,7 +2,7 @@
  *  Dials.scala
  *  (Kontakt)
  *
- *  Copyright (c) 2021 Hanns Holger Rutz. All rights reserved.
+ *  Copyright (c) 2021-2022 Hanns Holger Rutz. All rights reserved.
  *
  *  This software is published under the GNU Affero General Public License v3+
  *
@@ -141,21 +141,56 @@ object Dials {
     val pinRightB = parsePin(config.gpioRightB)
 
     def mkDial(pinA: Pin, pinB: Pin)(fun: Int => Unit): Unit = {
-      val inA     = gpio.provisionDigitalInputPin(pinA, PinPullResistance.PULL_UP)
-      val inB     = gpio.provisionDigitalInputPin(pinB, PinPullResistance.PULL_UP)
+      val inA       = gpio.provisionDigitalInputPin(pinA, PinPullResistance.PULL_UP)
+      val inB       = gpio.provisionDigitalInputPin(pinB, PinPullResistance.PULL_UP)
       // if (config.debounce > 0) button.setDebounce(config.debounce)
-      var stateA  = true
-      var stateB  = true
+      var stateA    = true
+      var stateB    = true
+      var lastDir   = 0
+      var lastTime  = System.currentTimeMillis()
+      var sameCount = 0
+      var speed     = 1
+
+      def check(dir: Int): Unit =
+        if (stateA == stateB) {
+          val now = System.currentTimeMillis()
+
+          def resetSpeed(): Unit = {
+            sameCount = 0
+            speed     = 1
+          }
+
+          if (lastDir != dir) {
+            lastDir = dir
+            resetSpeed()
+          }
+          // the time-out is higher if we've been already actively scrolling,
+          // so one can move the hand back on the dial after a half rotation
+          val dt = if (sameCount >= 6) 800 else 400
+          if ((now - lastTime) < dt) {
+            sameCount += 1
+            if (sameCount >= 24) {
+              if (speed < 32) speed <<= 1
+              sameCount = 6
+            }
+          } else {
+            resetSpeed()
+          }
+          lastTime  = now
+          val inc   = dir * speed
+          fun(inc)
+        }
+
       inA.addListener(new GpioPinListenerDigital() {
         override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
           stateA = e.getState.isHigh
-          if (stateA == stateB) fun(-1)
+          check(-1)
         }
       })
       inB.addListener(new GpioPinListenerDigital() {
         override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
           stateB = e.getState.isHigh
-          if (stateA == stateB) fun(+1)
+          check(+1)
         }
       })
     }

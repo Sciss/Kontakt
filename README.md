@@ -5,8 +5,8 @@
 This repository contains code for an ongoing art project. See
 [Research Catalogue](https://www.researchcatalogue.net/view/1154218/1294281)
 
-(C)opyright 2021 by Hanns Holger Rutz. All rights reserved. This project is released under the
-[GNU Affero General Public License](https://git.iem.at/sciss/WritingSimultan/blob/main/LICENSE) v3+ and
+(C)opyright 2021–2022 by Hanns Holger Rutz. All rights reserved. This project is released under the
+[GNU Affero General Public License](https://codeberg.org/sciss/Kontakt/raw/branch/main/LICENSE) v3+ and
 comes with absolutely no warranties.
 To contact the author, send an e-mail to `contact at sciss.de`.
 
@@ -80,3 +80,4 @@ java -cp kontakt.jar de.sciss.kontakt.Window --user USER --pass PASS --verbose -
 
 - v0.5.1; add 'evening' shutter time (14-Oct-2021)
 - v0.6.0; refactor `Login`; download new annotations from Mastodon DMs (04-Dec-2021)
+- v0.7.0; table improvements: accelerate dials, random movements when idle (Jun 2022)

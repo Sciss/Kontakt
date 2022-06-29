@@ -2,7 +2,7 @@
  *  Window.scala
  *  (Kontakt)
  *
- *  Copyright (c) 2021 Hanns Holger Rutz. All rights reserved.
+ *  Copyright (c) 2021-2022 Hanns Holger Rutz. All rights reserved.
  *
  *  This software is published under the GNU Affero General Public License v3+
  *
@@ -35,6 +35,7 @@ import java.text.AttributedString
 import java.time.temporal.ChronoUnit
 import java.time.{OffsetDateTime, ZonedDateTime}
 import java.util.{Date, Locale, Timer, TimerTask}
+import java.{util => ju}
 import javax.imageio.ImageIO
 import javax.swing.{AbstractAction, JComponent, KeyStroke, SwingUtilities}
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -42,41 +43,47 @@ import scala.concurrent.{Future, blocking}
 import scala.math.{max, min}
 import scala.swing.{BoxPanel, Component, Dimension, Graphics2D, MainFrame, Orientation, RootPanel, Swing}
 import scala.util.control.NonFatal
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Random, Success}
 
-/** This is the code for the physical installation at Reagenz and Glowing Globe.
+/** This is the code for the physical installation at Reagenz and the table-top version.
   */
 object Window {
   case class Config(
-                     username     : String  = "user",
-                     password     : String  = "pass",
-                     verbose      : Boolean = false,
-                     initDelay    : Int     = 120,
-                     shutdownHour : Int     = 21,
-                     shutdown     : Boolean = true,
-                     baseURI      : String  = "botsin.space",
-                     accountId    : Id      = Id("304274"),
-                     imgExtent    : Int     = 816,
-                     imgCrop      : Int     = 160,
-                     panelWidth   : Int     = 1920/2,
-                     panelHeight  : Int     = 1080,
-                     hasView      : Boolean = true,
-                     yShift       : Int     = 0,
-                     skipUpdate   : Boolean = false,
-                     updateMinutes: Int     = 15,
-                     crossHair    : Boolean = true,
-                     textShift    : Int     = 2, // 3, // 4,
-                     textYPad     : Int     = 12,
-                     textXPad     : Int     = 36,
-                     fontSize     : Double  = 20.0,
-                     crossEyed    : Boolean = false,
-                     dials        : Boolean = false,
-                     minusMonths  : Int     = 1,
-                     threshEntries: Boolean = true,
-                     desktop      : Boolean = false,
-                     overlayInset : Int     = 168,
+                     username       : String  = "user",
+                     password       : String  = "pass",
+                     verbose        : Boolean = false,
+                     initDelay      : Int     = 120,
+                     shutdownHour   : Int     = 21,
+                     shutdown       : Boolean = true,
+                     baseURI        : String  = "botsin.space",
+                     accountId      : Id      = Id("304274"),
+                     imgExtent      : Int     = 816,
+                     imgCrop        : Int     = 160,
+                     panelWidth     : Int     = 1920/2,
+                     panelHeight    : Int     = 1080,
+                     hasView        : Boolean = true,
+                     yShift         : Int     = 0,
+                     skipUpdate     : Boolean = false,
+                     updateMinutes  : Int     = 15,
+                     crossHair      : Boolean = true,
+                     textShift      : Int     = 2, // 3, // 4,
+                     textYPad       : Int     = 12,
+                     textXPad       : Int     = 36,
+                     fontSize       : Double  = 20.0,
+                     crossEyed      : Boolean = false,
+                     dials          : Boolean = false,
+                     minusMonths    : Int     = 1,
+                     threshEntries  : Boolean = true,
+                     desktop        : Boolean = false,
+                     overlayInset   : Int     = 168,
+                     idleMoveMinutes: Int     = 10,
+                     moveMinDays    : Int     = 21, // three weeks
+                     moveMaxDays    : Int     = 91, // c. three months
                    )
-    extends Login.Config
+    extends Login.Config {
+
+    require (moveMinDays <= moveMaxDays, s"moveMinDays $moveMinDays <= moveMaxDays $moveMaxDays")
+  }
 
   object Entry {
     implicit object ser extends ConstFormat[Entry] {
@@ -211,34 +218,46 @@ object Window {
       val desktop: Opt[Boolean] = opt(name = "desktop", default = Some(default.desktop),
         descr = "Use on desktop where no GPIO is present."
       )
+      val idleMoveMinutes: Opt[Int] = opt("idle-move-minutes", default = Some(default.idleMoveMinutes),
+        descr = s"Number of minutes of idle dial after which automatic movement is issued. Only effective if --dials are enabled. Zero to disable (default: ${default.idleMoveMinutes})."
+      )
+      val moveMinDays: Opt[Int] = opt("move-min-days", default = Some(default.moveMinDays),
+        descr = s"Minimum number of days offset between left/right when automatically moving (default: ${default.moveMinDays})."
+      )
+      val moveMaxDays: Opt[Int] = opt("move-max-days", default = Some(default.moveMaxDays),
+        descr = s"Maximum number of days offset between left/right when automatically moving (default: ${default.moveMaxDays})."
+      )
 
       verify()
       val config: Config = Config(
-        username      = username(),
-        password      = password(),
-        initDelay     = initDelay(),
-        verbose       = verbose(),
-        baseURI       = baseURI(),
-        accountId     = accountId(),
-        imgExtent     = imgExtent(),
-        imgCrop       = imgCrop(),
-        hasView       = !noView(),
-        yShift        = yShift(),
-        textShift     = textShift(),
-        textXPad      = textXPad(),
-        textYPad      = textYPad(),
-        overlayInset  = overlayInset(),
-        skipUpdate    = skipUpdate(),
-        crossHair     = !noCrossHair(),
-        fontSize      = fontSize(),
-        crossEyed     = crossEyed(),
-        shutdownHour  = shutdownHour(),
-        updateMinutes = updateMinutes(),
-        shutdown      = !noShutdown(),
-        dials         = dials(),
-        minusMonths   = minusMonths(),
-        threshEntries = !noThreshEntries(),
-        desktop       = desktop(),
+        username        = username(),
+        password        = password(),
+        initDelay       = initDelay(),
+        verbose         = verbose(),
+        baseURI         = baseURI(),
+        accountId       = accountId(),
+        imgExtent       = imgExtent(),
+        imgCrop         = imgCrop(),
+        hasView         = !noView(),
+        yShift          = yShift(),
+        textShift       = textShift(),
+        textXPad        = textXPad(),
+        textYPad        = textYPad(),
+        overlayInset    = overlayInset(),
+        skipUpdate      = skipUpdate(),
+        crossHair       = !noCrossHair(),
+        fontSize        = fontSize(),
+        crossEyed       = crossEyed(),
+        shutdownHour    = shutdownHour(),
+        updateMinutes   = updateMinutes(),
+        shutdown        = !noShutdown(),
+        dials           = dials(),
+        minusMonths     = minusMonths(),
+        threshEntries   = !noThreshEntries(),
+        desktop         = desktop(),
+        idleMoveMinutes = idleMoveMinutes(),
+        moveMinDays     = moveMinDays(),
+        moveMaxDays     = moveMaxDays(),
       )
     }
 
@@ -290,11 +309,28 @@ object Window {
     var entryLeftOver   = ""
     var entryRightOver  = ""
     var globalSched     = Option.empty[TimerTask]
+    lazy val rnd        = new Random()
+
+    def setRandomEntries(entries: Entries): Unit = {
+      val daysSpace   = rnd.between(config.moveMinDays, config.moveMaxDays + 1)
+      val eLeftMin    = closestIndex(entries, entries.last.createdAt.plusDays(daysSpace))
+      val idxLeftMin  = max(1, entries.seq.indexOf(eLeftMin))
+      val idxLeft     = rnd.nextInt(idxLeftMin)
+      val eLeft       = entries.seq(idxLeft)
+      val eRight      = closestIndex(entries, eLeft.createdAt.plusDays(daysSpace))
+      log(s"Random movement (${eLeft.createdAt}, ${eRight.createdAt})")
+      setEntries(entries, eLeft, eRight)
+    }
 
     def setDefaultEntries(entries: Entries): Unit = {
-      val eLeft   = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
-      val eRight  = entries.head
-      setEntries(entries, eLeft, eRight)
+      if (config.dials) {
+        setRandomEntries(entries)
+      } else {
+        // Reagenz window: use newest entry, and one month back in time
+        val eLeft  = closestIndex(entries, entries.head.createdAt.minusMonths(config.minusMonths))
+        val eRight = entries.head
+        setEntries(entries, eLeft, eRight)
+      }
     }
 
     def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
@@ -326,7 +362,7 @@ object Window {
       }
     }
 
-    lazy val timer = new Timer
+    lazy val timer = new ju.Timer
 
     def trigFetch(): Unit = {
       globalSched.foreach(_.cancel())
@@ -350,12 +386,29 @@ object Window {
       }
     }
 
+    var idleSched = Option.empty[TimerTask]
+
+    // synced via `entriesSync`
+    def restartIdleTimeOut(): Unit = {
+      idleSched.foreach(_.cancel())
+      if (config.idleMoveMinutes > 0) {
+        val tt: TimerTask = new TimerTask {
+          override def run(): Unit = entriesSync.synchronized {
+            setRandomEntries(globalEntries)
+          }
+        }
+        idleSched = Some(tt)
+        timer.schedule(tt, config.idleMoveMinutes * 60000L)
+      }
+    }
+
     val dialsOps = if (!config.dials) None else {
       val m = Dials.run(Dials.Config(desktop = config.desktop), timer)
       m.addListener {
         case Dials.Left(inc) =>
           if (config.verbose) println(s"Left  dial: $inc")
           entriesSync.synchronized {
+            restartIdleTimeOut()
             if (entryLeftIdx >= 0) {
               // note: minus inc because sorted with newest on top
               val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
@@ -372,6 +425,7 @@ object Window {
           if (config.verbose) println(s"Right dial: $inc")
           entriesSync.synchronized {
             if (entryRightIdx >= 0) {
+              restartIdleTimeOut()
               // note: minus inc because sorted with newest on top
               val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
               if (newIdx != entryRightIdx) {
