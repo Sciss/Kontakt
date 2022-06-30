@@ -21,6 +21,7 @@ import akka.stream.scaladsl.FileIO
 import de.sciss.file._
 import de.sciss.kontakt.Common.{fullVersion, htmlToPlain, idLong, longId, shutdown}
 import de.sciss.kontakt.Login.{appAuthor, appName}
+import de.sciss.model.Model
 import de.sciss.numbers.Implicits._
 import de.sciss.scaladon.{Attachment, AttachmentType, Id, Status, Visibility}
 import de.sciss.serial.{ConstFormat, DataInput, DataOutput}
@@ -80,6 +81,8 @@ object Window {
                      moveMinDays    : Int     = 21, // three weeks
                      moveMaxDays    : Int     = 91, // c. three months
                      seed           : Long    = System.currentTimeMillis(),
+                     overlayDur     : Int     = 6000,
+                     trigFetchDur   : Int     = 1000,
                    )
     extends Login.Config {
 
@@ -232,6 +235,12 @@ object Window {
         descr = s"Random seed (default: ${default.seed}).",
         validate = x => x >= 0
       )
+      val overlayDur: Opt[Int] = opt("overlay-dur", default = Some(default.overlayDur),
+        descr = s"Overlay display duration in milliseconds (default: ${default.overlayDur})."
+      )
+      val trigFetchDur: Opt[Int] = opt("trig-fetch-dur", default = Some(default.trigFetchDur),
+        descr = s"Overlay display duration in milliseconds (default: ${default.trigFetchDur})."
+      )
 
       verify()
       val config: Config = Config(
@@ -264,6 +273,8 @@ object Window {
         moveMinDays     = moveMinDays(),
         moveMaxDays     = moveMaxDays(),
         seed            = seed(),
+        overlayDur      = overlayDur(),
+        trigFetchDur    = trigFetchDur(),
       )
     }
 
@@ -307,6 +318,10 @@ object Window {
     def setRandomEntries(entries: Entries): Unit
 
     def initialEntries(): Future[Entries]
+
+    def dial(u: Dials.Update): Unit
+
+    def random: Random
   }
 
   def run(scheduler: Scheduler)(implicit config: Config): Run = {
@@ -345,6 +360,8 @@ object Window {
     private[this] var overlaySched    = Option.empty[Token]
     private[this] lazy val rnd        = new Random(config.seed)
 
+    override def random: Random = rnd
+
     override def setRandomEntries(entries: Entries): Unit = {
       val daysSpace   = rnd.between(config.moveMinDays, config.moveMaxDays + 1)
       val eLeftMin    = closestIndex(entries, entries.last.createdAt.plusDays(daysSpace))
@@ -377,7 +394,7 @@ object Window {
           entryLeftIdx  = entries.seq.indexOf(eLeft)
           entryRightIdx = entries.seq.indexOf(eRight)
           overlaySched.foreach(scheduler.cancel)
-          val tt = scheduler.schedule(6000L) {
+          val tt = scheduler.schedule(config.overlayDur.toLong) {
             entriesSync.synchronized {
               clearOverlays()
             }
@@ -431,7 +448,7 @@ object Window {
     private def trigFetch(): Unit = {
       globalSched .foreach(scheduler.cancel)
       overlaySched.foreach(scheduler.cancel)
-      val tt =  scheduler.schedule(1000L) {
+      val tt =  scheduler.schedule(config.trigFetchDur.toLong) {
         entriesSync.synchronized {
           val eLeft  = globalEntries.seq(entryLeftIdx  )
           val eRight = globalEntries.seq(entryRightIdx )
@@ -457,45 +474,50 @@ object Window {
       }
     }
 
+    private[this] val dialsFun: Model.Listener[Dials.Update] = {
+      case Dials.Left(inc) =>
+        if (config.verbose) println(s"Left  dial: $inc")
+        entriesSync.synchronized {
+          restartIdleTimeOut()
+          if (entryLeftIdx >= 0) {
+            // note: minus inc because sorted with newest on top
+            val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
+            if (newIdx != entryLeftIdx) {
+              entryLeftIdx    = newIdx
+              val eLeft       = globalEntries.seq(newIdx)
+              entryLeftOver   = eLeft.createdAt.toString
+              trigFetch()
+            }
+          }
+        }
+
+      case Dials.Right(inc) =>
+        if (config.verbose) println(s"Right dial: $inc")
+        entriesSync.synchronized {
+          if (entryRightIdx >= 0) {
+            restartIdleTimeOut()
+            // note: minus inc because sorted with newest on top
+            val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
+            if (newIdx != entryRightIdx) {
+              entryRightIdx   = newIdx
+              val eRight      = globalEntries.seq(newIdx)
+              entryRightOver  = eRight.createdAt.toString
+              trigFetch()
+            }
+          }
+        }
+
+      case Dials.Off =>
+        println("Shutdown button pressed.")
+        quitOrShutdown(scheduled = false)
+    }
+
+    override def dial(u: Dials.Update): Unit =
+      dialsFun.applyOrElse(u, (_: Dials.Update) => ())
+
     private[this] val dialsOps = if (!config.dials) None else {
       val m = Dials.run(Dials.Config(desktop = config.desktop), scheduler)
-      m.addListener {
-        case Dials.Left(inc) =>
-          if (config.verbose) println(s"Left  dial: $inc")
-          entriesSync.synchronized {
-            restartIdleTimeOut()
-            if (entryLeftIdx >= 0) {
-              // note: minus inc because sorted with newest on top
-              val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
-              if (newIdx != entryLeftIdx) {
-                entryLeftIdx    = newIdx
-                val eLeft       = globalEntries.seq(newIdx)
-                entryLeftOver   = eLeft.createdAt.toString
-                trigFetch()
-              }
-            }
-          }
-
-        case Dials.Right(inc) =>
-          if (config.verbose) println(s"Right dial: $inc")
-          entriesSync.synchronized {
-            if (entryRightIdx >= 0) {
-              restartIdleTimeOut()
-              // note: minus inc because sorted with newest on top
-              val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
-              if (newIdx != entryRightIdx) {
-                entryRightIdx   = newIdx
-                val eRight      = globalEntries.seq(newIdx)
-                entryRightOver  = eRight.createdAt.toString
-                trigFetch()
-              }
-            }
-          }
-
-        case Dials.Off =>
-          println("Shutdown button pressed.")
-          quitOrShutdown(scheduled = false)
-      }
+      m.addListener(dialsFun)
       Some(m)
     }
 

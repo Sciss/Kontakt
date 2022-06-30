@@ -71,6 +71,7 @@ object xCoAxVideo {
       threshEntries = false,
       hasView       = false,
       crossEyed     = true,
+      trigFetchDur  = 10,
     )
     val scheduler = new OfflineScheduler(fps = config.fps)
     val r = Window.run(scheduler)
@@ -80,11 +81,21 @@ object xCoAxVideo {
     futAll.foreach { entries =>
       println(s"entries.size ${entries.size}")
       r.setRandomEntries(entries)
-      scheduler.schedule(1000L) {
-        r.setRandomEntries(entries)
-      }
-      scheduler.schedule(10000L) {
-        ()
+//      scheduler.schedule(1000L) {
+//        r.setRandomEntries(entries)
+//      }
+
+      val rnd = r.random
+      val dialSpeed     = rnd.between(30, 100)
+      val dialNumClicks = rnd.between(4, 15)
+      val dialDir       = rnd.nextBoolean()
+      val dialStart     = 10000L
+      val dialRange     = dialStart to (dialStart + dialNumClicks * dialSpeed) by dialSpeed
+
+      dialRange.foreach { dt =>
+        scheduler.schedule(dt) {
+          r.dial(Dials.Left(if (dialDir) +1 else -1))
+        }
       }
 
       Swing.onEDT {
