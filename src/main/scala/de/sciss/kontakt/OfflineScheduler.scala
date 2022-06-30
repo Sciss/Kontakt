@@ -15,12 +15,12 @@ package de.sciss.kontakt
 import java.util.Date
 import scala.collection.mutable
 
-class OfflineScheduler(fps: Int) extends Scheduler {
+class OfflineScheduler(fps: Int, sync: AnyRef) extends Scheduler {
   type Token = Int
 
   private final class Timed(val frame: Int, val fun: () => Unit)
 
-  private[this] val sync        = new AnyRef
+//  private[this] val sync        = new AnyRef
   private[this] var tokenCount  = 0
   private[this] val fpMs        = fps / 1000.0
   private[this] var _frame      = 1
@@ -46,16 +46,16 @@ class OfflineScheduler(fps: Int) extends Scheduler {
   def advanceFrames(maxFrames: Int)(render: => Unit): Int = sync.synchronized {
     if (queue.isEmpty) 0 else {
       val target = queue.firstKey
-      println(s"--- target $target")
+      // println(s"--- target $target")
       var df = 0
       while (_frame < target && df < maxFrames) {
         _frame += 1
         df += 1
-        println(s"--- frame ${_frame}")
+        // println(s"--- frame ${_frame}")
         render
       }
       if (_frame == target) {
-        println(s"--- reached $target")
+        // println(s"--- reached $target")
         queue.remove(target).foreach { tokens =>
           tokens.foreach { token =>
             tokenMap.remove(token).foreach { timed =>

@@ -18,6 +18,9 @@ import java.util.Date
 trait Scheduler {
   type Token
 
+  def scheduleSec(sec: Double)(body: => Unit): Token =
+    schedule((sec * 1000L + 0.5).toLong)(body)
+
   def schedule(dt: Long)(body: => Unit): Token
 
   def schedule(dt: Long, period: Long)(body: => Unit): Token

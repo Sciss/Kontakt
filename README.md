@@ -76,6 +76,12 @@ toot the annotation  from the Kontakt account to itself.
 java -cp kontakt.jar de.sciss.kontakt.Window --user USER --pass PASS --verbose --init-delay 0 --shutdown-hour 0 --no-thresh-entries --no-view
 ```
 
+## rendering xcoax video
+
+To put it together:
+
+    ffmpeg -i frames/frame-%d.jpg -r 25 xcoax-video.mp4
+
 ## change-log
 
 - v0.5.1; add 'evening' shutter time (14-Oct-2021)

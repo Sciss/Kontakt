@@ -280,7 +280,7 @@ object Window {
 
     implicit val config: Config = p.config
     val scheduler: Scheduler = new RealtimeScheduler
-    val r = run(scheduler)
+    val r = run(scheduler, sync = new AnyRef)
     val futAll = r.initialEntries()
     futAll.onComplete {
       case Success(_) => log(if (config.skipUpdate) "Entries read" else "Updates completed")
@@ -322,14 +322,19 @@ object Window {
     def dial(u: Dials.Update): Unit
 
     def random: Random
+
+    def currentEntries: Entries
+
+    def entryLeftIdx  : Int
+    def entryRightIdx : Int
   }
 
-  def run(scheduler: Scheduler)(implicit config: Config): Run = {
+  def run(scheduler: Scheduler, sync: AnyRef)(implicit config: Config): Run = {
     println(nameAndVersion)
-    new RunImpl(scheduler)
+    new RunImpl(scheduler, entriesSync = sync)
   }
 
-  private final class RunImpl(scheduler: Scheduler)(implicit config: Config) extends Run {
+  private final class RunImpl(scheduler: Scheduler, entriesSync: AnyRef)(implicit config: Config) extends Run {
     import scheduler.Token
 
     {
@@ -349,11 +354,10 @@ object Window {
     override def view: Option[View] = _view
     override def view_=(x: Option[View]): Unit = _view = x
 
-    // sync group
-    private[this] val entriesSync     = new AnyRef
+    // sync group: entriesSync
     private[this] var globalEntries   = Entries.empty
-    private[this] var entryLeftIdx    = -1
-    private[this] var entryRightIdx   = -1
+    private[this] var _entryLeftIdx   = -1
+    private[this] var _entryRightIdx  = -1
     private[this] var entryLeftOver   = ""
     private[this] var entryRightOver  = ""
     private[this] var globalSched     = Option.empty[Token]
@@ -361,6 +365,11 @@ object Window {
     private[this] lazy val rnd        = new Random(config.seed)
 
     override def random: Random = rnd
+
+    override def currentEntries: Entries = entriesSync.synchronized(globalEntries)
+
+    override def entryLeftIdx : Int = entriesSync.synchronized(_entryLeftIdx  )
+    override def entryRightIdx: Int = entriesSync.synchronized(_entryRightIdx )
 
     override def setRandomEntries(entries: Entries): Unit = {
       val daysSpace   = rnd.between(config.moveMinDays, config.moveMaxDays + 1)
@@ -391,8 +400,8 @@ object Window {
       fetchPair(eLeft, eRight).foreach { case (cOld, cNew) =>
         entriesSync.synchronized {
           globalEntries = entries
-          entryLeftIdx  = entries.seq.indexOf(eLeft)
-          entryRightIdx = entries.seq.indexOf(eRight)
+          _entryLeftIdx  = entries.seq.indexOf(eLeft)
+          _entryRightIdx = entries.seq.indexOf(eRight)
           overlaySched.foreach(scheduler.cancel)
           val tt = scheduler.schedule(config.overlayDur.toLong) {
             entriesSync.synchronized {
@@ -450,8 +459,8 @@ object Window {
       overlaySched.foreach(scheduler.cancel)
       val tt =  scheduler.schedule(config.trigFetchDur.toLong) {
         entriesSync.synchronized {
-          val eLeft  = globalEntries.seq(entryLeftIdx  )
-          val eRight = globalEntries.seq(entryRightIdx )
+          val eLeft  = globalEntries.seq(_entryLeftIdx  )
+          val eRight = globalEntries.seq(_entryRightIdx )
           setEntries(globalEntries, eLeft, eRight)
         }
       }
@@ -479,11 +488,11 @@ object Window {
         if (config.verbose) println(s"Left  dial: $inc")
         entriesSync.synchronized {
           restartIdleTimeOut()
-          if (entryLeftIdx >= 0) {
+          if (_entryLeftIdx >= 0) {
             // note: minus inc because sorted with newest on top
-            val newIdx = (entryLeftIdx - inc).clip(0, globalEntries.size - 1)
-            if (newIdx != entryLeftIdx) {
-              entryLeftIdx    = newIdx
+            val newIdx = (_entryLeftIdx - inc).clip(0, globalEntries.size - 1)
+            if (newIdx != _entryLeftIdx) {
+              _entryLeftIdx    = newIdx
               val eLeft       = globalEntries.seq(newIdx)
               entryLeftOver   = eLeft.createdAt.toString
               trigFetch()
@@ -494,12 +503,12 @@ object Window {
       case Dials.Right(inc) =>
         if (config.verbose) println(s"Right dial: $inc")
         entriesSync.synchronized {
-          if (entryRightIdx >= 0) {
+          if (_entryRightIdx >= 0) {
             restartIdleTimeOut()
             // note: minus inc because sorted with newest on top
-            val newIdx = (entryRightIdx - inc).clip(0, globalEntries.size - 1)
-            if (newIdx != entryRightIdx) {
-              entryRightIdx   = newIdx
+            val newIdx = (_entryRightIdx - inc).clip(0, globalEntries.size - 1)
+            if (newIdx != _entryRightIdx) {
+              _entryRightIdx   = newIdx
               val eRight      = globalEntries.seq(newIdx)
               entryRightOver  = eRight.createdAt.toString
               trigFetch()
@@ -514,6 +523,11 @@ object Window {
 
     override def dial(u: Dials.Update): Unit =
       dialsFun.applyOrElse(u, (_: Dials.Update) => ())
+
+//    override def dial(u: Dials.Update): Unit =
+//      Swing.onEDT {
+//        dialsFun.applyOrElse(u, (_: Dials.Update) => ())
+//      }
 
     private[this] val dialsOps = if (!config.dials) None else {
       val m = Dials.run(Dials.Config(desktop = config.desktop), scheduler)

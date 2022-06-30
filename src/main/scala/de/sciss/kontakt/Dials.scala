@@ -119,6 +119,7 @@ object Dials {
   }
 
   sealed trait Update
+  /** N.B. direction is counter to adding actually to the image indices! */
   case class Left (dir: Int) extends Update
   case class Right(dir: Int) extends Update
   case object Off extends Update

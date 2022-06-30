@@ -29,19 +29,19 @@ lazy val root = project.in(file("."))
     scalacOptions ++= Seq("-deprecation", "-unchecked", "-feature", "-encoding", "utf8"),
     resolvers    += "imagej.releases" at "https://maven.scijava.org/content/repositories/releases/",
     libraryDependencies ++= Seq(
-      "com.pi4j"            %  "pi4j-core"            % deps.main.pi4j,         // GPIO control
-      "de.sciss"            %% "fileutil"             % deps.main.fileUtil,     // utility functions
-      "de.sciss"            %% "model"                % deps.main.model,        // mvc
-      "de.sciss"            %% "numbers"              % deps.main.numbers,      // numeric utilities
-      "de.sciss"            %% "scaladon"             % deps.main.scaladon,     // Mastodon client
-      "de.sciss"            %% "serial"               % deps.main.serial,       // Serialization
-      "mpicbg"              %  "mpicbg"               % deps.main.mpicbg,       // 2D transforms
-      "net.harawata"        %  "appdirs"              % deps.main.appDirs,      // finding standard directories
-      "net.imagej"          %  "ij"                   % deps.main.imageJ,       // analyzing image data
-//      "org.apache.commons"  % "commons-text"          % deps.main.commonsText,  // decode HTML entities
-      "org.unbescape"       % "unbescape"             % deps.main.unbescape,    // decode HTML entities
-      "org.rogach"          %% "scallop"              % deps.main.scallop,      // command line option parsing
-      "org.scala-lang.modules" %% "scala-swing"       % deps.main.scalaSwing,   // UI
+      "com.pi4j"      %  "pi4j-core"                % deps.main.pi4j,         // GPIO control
+      "de.sciss"      %% "fileutil"                 % deps.main.fileUtil,     // utility functions
+      "de.sciss"      %% "model"                    % deps.main.model,        // mvc
+      "de.sciss"      %% "numbers"                  % deps.main.numbers,      // numeric utilities
+      "de.sciss"      %% "scalacolliderugens-core"  % deps.main.ugens,        // 'Curve'
+      "de.sciss"      %% "scaladon"                 % deps.main.scaladon,     // Mastodon client
+      "de.sciss"      %% "serial"                   % deps.main.serial,       // Serialization
+      "mpicbg"        %  "mpicbg"                   % deps.main.mpicbg,       // 2D transforms
+      "net.harawata"  %  "appdirs"                  % deps.main.appDirs,      // finding standard directories
+      "net.imagej"    %  "ij"                       % deps.main.imageJ,       // analyzing image data
+      "org.unbescape" % "unbescape"                 % deps.main.unbescape,    // decode HTML entities
+      "org.rogach"    %% "scallop"                  % deps.main.scallop,      // command line option parsing
+      "org.scala-lang.modules" %% "scala-swing"     % deps.main.scalaSwing,   // UI
     ),
     buildInfoPackage := "de.sciss.kontakt",
   )
@@ -60,6 +60,7 @@ lazy val deps = new {
     val scalaSwing  = "3.0.0"
     val scallop     = "4.1.0"
     val serial      = "2.0.1"
+    val ugens       = "1.21.4"
     val unbescape   = "1.1.6.RELEASE"
   }
 }
