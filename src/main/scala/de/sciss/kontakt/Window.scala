@@ -29,12 +29,12 @@ import org.rogach.scallop.{ScallopConf, ValueConverter, singleArgConverter, Scal
 
 import java.awt.event.{ActionEvent, InputEvent, KeyEvent}
 import java.awt.font.{LineBreakMeasurer, TextAttribute}
-import java.awt.image.BufferedImage
+import java.awt.image.{BufferedImage, ImageObserver}
 import java.awt.{Color, EventQueue, Font, RenderingHints, Toolkit}
 import java.text.AttributedString
 import java.time.temporal.ChronoUnit
 import java.time.{OffsetDateTime, ZonedDateTime}
-import java.util.{Date, Locale, Timer, TimerTask}
+import java.util.{Date, Locale, TimerTask}
 import java.{util => ju}
 import javax.imageio.ImageIO
 import javax.swing.{AbstractAction, JComponent, KeyStroke, SwingUtilities}
@@ -261,7 +261,15 @@ object Window {
       )
     }
 
-    run()(p.config)
+    implicit val config: Config = p.config
+    val r = run()
+    val futAll = r.initialEntries()
+    futAll.onComplete {
+      case Success(_) => log(if (config.skipUpdate) "Entries read" else "Updates completed")
+      case Failure(ex) =>
+        Console.err.println("Update failed:")
+        ex.printStackTrace()
+    }
   }
 
   private val writeLock = new AnyRef
@@ -286,33 +294,50 @@ object Window {
   final def name          : String = "Kontakt (window)"
   final def nameAndVersion: String = s"$name $fullVersion"
 
-  def run()(implicit config: Config): Unit = {
-    println(nameAndVersion)
+  trait Run {
+    var view: Option[View]
 
-    val initDelayMS = math.max(0, config.initDelay) * 1000L
-    if (initDelayMS > 0) {
-      println(s"Waiting for ${config.initDelay} seconds.")
-      Thread.sleep(initDelayMS)
+    def setRandomEntries(entries: Entries): Unit
+
+    def initialEntries(): Future[Entries]
+  }
+
+  def run()(implicit config: Config): Run = {
+    println(nameAndVersion)
+    new RunImpl
+  }
+
+  private final class RunImpl()(implicit config: Config) extends Run {
+
+    {
+      val initDelayMS = math.max(0, config.initDelay) * 1000L
+      if (initDelayMS > 0) {
+        println(s"Waiting for ${config.initDelay} seconds.")
+        Thread.sleep(initDelayMS)
+      }
     }
 
-    val odt       = OffsetDateTime.now()
-    val date      = Date.from(odt.toInstant)
+    private[this] val odt       = OffsetDateTime.now()
+    private[this] val date      = Date.from(odt.toInstant)
     println(s"The date and time: $date")
 
-    var view          = Option.empty[View]
+    private[this] var _view = Option.empty[View]
+
+    override def view: Option[View] = _view
+    override def view_=(x: Option[View]): Unit = _view = x
 
     // sync group
-    val entriesSync     = new AnyRef
-    var globalEntries   = Entries.empty
-    var entryLeftIdx    = -1
-    var entryRightIdx   = -1
-    var entryLeftOver   = ""
-    var entryRightOver  = ""
-    var globalSched     = Option.empty[TimerTask]
-    var overlaySched    = Option.empty[TimerTask]
-    lazy val rnd        = new Random()
+    private[this] val entriesSync     = new AnyRef
+    private[this] var globalEntries   = Entries.empty
+    private[this] var entryLeftIdx    = -1
+    private[this] var entryRightIdx   = -1
+    private[this] var entryLeftOver   = ""
+    private[this] var entryRightOver  = ""
+    private[this] var globalSched     = Option.empty[TimerTask]
+    private[this] var overlaySched    = Option.empty[TimerTask]
+    private[this] lazy val rnd        = new Random()
 
-    def setRandomEntries(entries: Entries): Unit = {
+    override def setRandomEntries(entries: Entries): Unit = {
       val daysSpace   = rnd.between(config.moveMinDays, config.moveMaxDays + 1)
       val eLeftMin    = closestIndex(entries, entries.last.createdAt.plusDays(daysSpace))
       val idxLeftMin  = max(1, entries.seq.indexOf(eLeftMin))
@@ -326,7 +351,7 @@ object Window {
       setEntries(entries, eLeft, eRight)
     }
 
-    def setDefaultEntries(entries: Entries): Unit = {
+    private def setDefaultEntries(entries: Entries): Unit = {
       if (config.dials) {
         setRandomEntries(entries)
       } else {
@@ -337,7 +362,7 @@ object Window {
       }
     }
 
-    def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
+    private def setEntries(entries: Entries, eLeft: Entry, eRight: Entry): Unit = {
       fetchPair(eLeft, eRight).foreach { case (cOld, cNew) =>
         entriesSync.synchronized {
           globalEntries = entries
@@ -354,7 +379,7 @@ object Window {
         }
 
         Swing.onEDT {
-          view.foreach { v =>
+          _view.foreach { v =>
             v.left      = Some(cOld)
             v.right     = Some(cNew)
             v.sync()
@@ -363,7 +388,7 @@ object Window {
       }
     }
 
-    def quitOrShutdown(scheduled: Boolean): Unit = {
+    private def quitOrShutdown(scheduled: Boolean): Unit = {
       log("About to shut down...")
       if (config.shutdown && scheduled) Thread.sleep(8000)
       writeLock.synchronized {
@@ -371,14 +396,14 @@ object Window {
       }
     }
 
-    lazy val timer = new ju.Timer
+    private[this] lazy val timer = new ju.Timer
 
-    def setOverlays(): Unit = {
+    private def setOverlays(): Unit = {
       overlaySched.foreach(_.cancel())
       val leftOver  = entryLeftOver
       val rightOver = entryRightOver
       Swing.onEDT {
-        view.foreach { v =>
+        _view.foreach { v =>
           v.leftOverlay   = leftOver
           v.rightOverlay  = rightOver
           v.sync()
@@ -386,11 +411,11 @@ object Window {
       }
     }
 
-    def clearOverlays(): Unit = {
+    private def clearOverlays(): Unit = {
       entryLeftOver   = ""
       entryRightOver  = ""
       Swing.onEDT {
-        view.foreach { v =>
+        _view.foreach { v =>
           v.leftOverlay   = ""
           v.rightOverlay  = ""
           v.sync()
@@ -398,7 +423,7 @@ object Window {
       }
     }
 
-    def trigFetch(): Unit = {
+    private def trigFetch(): Unit = {
       globalSched .foreach(_.cancel())
       overlaySched.foreach(_.cancel())
       val tt: TimerTask = new TimerTask {
@@ -413,10 +438,10 @@ object Window {
       setOverlays()
     }
 
-    var idleSched = Option.empty[TimerTask]
+    private[this] var idleSched = Option.empty[TimerTask]
 
     // synced via `entriesSync`
-    def restartIdleTimeOut(): Unit = {
+    private def restartIdleTimeOut(): Unit = {
       idleSched.foreach(_.cancel())
       if (config.idleMoveMinutes > 0) {
         val tt: TimerTask = new TimerTask {
@@ -429,7 +454,7 @@ object Window {
       }
     }
 
-    val dialsOps = if (!config.dials) None else {
+    private[this] val dialsOps = if (!config.dials) None else {
       val m = Dials.run(Dials.Config(desktop = config.desktop), timer)
       m.addListener {
         case Dials.Left(inc) =>
@@ -471,48 +496,43 @@ object Window {
       Some(m)
     }
 
-    implicit val as: ActorSystem = ActorSystem()
     if (config.hasView) Swing.onEDT {
-      val _view = openView()
+      val v = openView()
       dialsOps.foreach { m =>
-        _view.installKeyboardDials(m)
+        v.installKeyboardDials(m)
       }
-      view = Some(_view)
+      _view = Some(v)
     }
 
-    val entriesFut = if (config.skipUpdate) readCache() else {
-      Login(write = false).flatMap { implicit li =>
-        val e0Fut = updateEntries()
-        if (config.skipUpdate || config.updateMinutes == 0) e0Fut else e0Fut.andThen {
-          case Success(e0) =>
-            val updateMillis = config.updateMinutes * 60 * 1000L
-            timer.schedule(new TimerTask {
-              override def run(): Unit = {
-                log("running repeated update check...")
-                updateEntries().foreach { e1 =>
-                  val hasNew = e1 != e0
-                  log(s"Update checked. New contents? $hasNew")
-                  if (hasNew && config.hasView) {
-                    setDefaultEntries(e1)
+    override def initialEntries(): Future[Entries] = {
+      val entriesFut = if (config.skipUpdate) readCache() else {
+        implicit val as: ActorSystem = ActorSystem()
+        Login(write = false).flatMap { implicit li =>
+          val e0Fut = updateEntries()
+          if (config.skipUpdate || config.updateMinutes == 0) e0Fut else e0Fut.andThen {
+            case Success(e0) =>
+              val updateMillis = config.updateMinutes * 60 * 1000L
+              timer.schedule(new TimerTask {
+                override def run(): Unit = {
+                  log("running repeated update check...")
+                  updateEntries().foreach { e1 =>
+                    val hasNew = e1 != e0
+                    log(s"Update checked. New contents? $hasNew")
+                    if (hasNew && config.hasView) {
+                      setDefaultEntries(e1)
+                    }
                   }
                 }
-              }
-            }, updateMillis, updateMillis)
+              }, updateMillis, updateMillis)
+          }
         }
       }
-    }
 
-    val futAll = for {
-      entries <- entriesFut
-    } yield {
-      if (config.hasView) setDefaultEntries(entries)
-    }
+      val futAll = entriesFut.andThen {
+        case Success(entries) if config.hasView => setDefaultEntries(entries)
+      }
 
-    futAll.onComplete {
-      case Success(_) => log(if (config.skipUpdate) "Entries read" else "Updates completed")
-      case Failure(ex) =>
-        Console.err.println("Update failed:")
-        ex.printStackTrace()
+      futAll
     }
 
     if (config.shutdownHour > 0) {
@@ -527,7 +547,7 @@ object Window {
       }, dateSD)
       log(s"Shutdown scheduled for $dateSD")
     }
-  } // end run
+  } // end RunImpl
 
   object Entries {
     def empty: Entries = Entries(Nil)
@@ -686,8 +706,6 @@ object Window {
   private final class ViewImpl(implicit config: Config) extends MainFrame with View {
     peer.setUndecorated(true)
 
-//    title = "Kontakt"
-
     private val textFont = font1pt.deriveFont(config.fontSize.toFloat)
 
     override def sync(): Unit = peer.getToolkit.sync()
@@ -752,11 +770,11 @@ object Window {
 //    installFullScreenKey(this, leftView)
 //    leftView.requestFocus()
 
-    def left: Option[Content] = leftView.data
-    def left_=(c: Option[Content]): Unit = leftView.data_=(c)
+    override def left: Option[Content] = leftView.data
+    override def left_=(c: Option[Content]): Unit = leftView.data_=(c)
 
-    def right: Option[Content] = rightView.data
-    def right_=(c: Option[Content]): Unit = rightView.data_=(c)
+    override def right: Option[Content] = rightView.data
+    override def right_=(c: Option[Content]): Unit = rightView.data_=(c)
   }
 
   def toggleFullScreen(frame: RootPanel): Unit = {
@@ -780,45 +798,46 @@ object Window {
     })
   }
 
-  private final class ViewSideImpl(alignRight: Boolean
-                                  )(implicit config: Config)
-    extends Component {
+  abstract trait ViewSideBase {
+    // ---- abstract ----
+    protected def repaint(): Unit
 
-    import config._
+    protected def alignRight: Boolean
+    protected val config: Config
 
-    opaque        = true
-    preferredSize = new Dimension(panelWidth, panelHeight)
+    protected def imageObserver: ImageObserver
 
-    private val hoverShift = if (alignRight ^ crossEyed) config.textShift else -config.textShift
+    // --- impl ---
+
+    private val hoverShift = if (alignRight ^ config.crossEyed) config.textShift else -config.textShift
 
     private var _data     = Option.empty[Content]
     private var _overlay  = ""
 
-    def data: Option[Content] = _data
-    def data_=(c: Option[Content]): Unit = {
+    final def data: Option[Content] = _data
+    final def data_=(c: Option[Content]): Unit = {
       _data = c
       repaint()
     }
 
-    def overlay: String = _overlay
-    def overlay_=(s: String): Unit = {
+    final def overlay: String = _overlay
+    final def overlay_=(s: String): Unit = {
       _overlay = s
       repaint()
     }
 
-    private val imgX = if (alignRight) panelWidth - imgExtent else 0
-    private val pMin = min(panelWidth, panelHeight)
-    private val pMax = max(panelWidth, panelHeight)
-    private val imgY = (pMin - imgExtent)/2 + (pMax - pMin)
-
-//    listenTo(mouse.clicks)
+    private val imgX = if (alignRight) config.panelWidth - config.imgExtent else 0
+    private val pMin = min(config.panelWidth, config.panelHeight)
+    private val pMax = max(config.panelWidth, config.panelHeight)
+    private val imgY = (pMin - config.imgExtent)/2 + (pMax - pMin)
 
     private val colrHover   = new Color(0x7F000000, true)
     private val colrHover2  = new Color(0x7FFFFFFF, true)
 
-    override protected def paintComponent(g: Graphics2D): Unit = {
-      super.paintComponent(g)
+    def paintSide(g: Graphics2D): Unit = {
+      // super.paintComponent(g)
       g.setColor(Color.black)
+      import config._
       g.fillRect(0, 0, panelWidth, panelHeight)
 
       g.setRenderingHint(RenderingHints.KEY_INTERPOLATION     , RenderingHints.VALUE_INTERPOLATION_BICUBIC)
@@ -828,13 +847,12 @@ object Window {
 
       _data.foreach { c =>
         val img = c.image
-//        g.drawImage(img, imgX, imgY, imgExtent, imgExtent, peer)
         g.drawImage(img, /* dx1 */ imgX, /* dy1 */ imgY, /* dx2 */ imgX + imgExtent, /* dy2 */ imgY + imgExtent,
           /* sx1 */ imgCrop, /* sy1 */ imgCrop, /* sx2 */ img.getWidth - imgCrop, /* sy2 */ img.getHeight - imgCrop,
-          peer)
+          imageObserver)
 
-//        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
-//        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
+        //        g.drawString(c.textTop    , imgX + 8f, imgY + 8f + fm.getAscent)
+        //        g.drawString(c.textBottom , imgX + 8f, imgY + imgExtent - 8f - fm.getHeight + fm.getAscent)
 
         val frc = g.getFontRenderContext
 
@@ -879,7 +897,7 @@ object Window {
           }
 
           val (cnt0, w0)  = count(maxTxtW0)
-//          println(s"cnt0 $cnt0, last line ratio: ${maxTxtW0 / w0}")
+          //          println(s"cnt0 $cnt0, last line ratio: ${maxTxtW0 / w0}")
           if (cnt0 <= 1 || (maxTxtW0 / w0) < 1.8) {
             render(cnt0, maxTxtW0)
           } else {
@@ -888,7 +906,7 @@ object Window {
             val perLine     = lastSpace / cnt0
             val maxTxtW1    = maxTxtW0 - perLine * 0.85f
             val (cnt1, w1)   = count(maxTxtW1)
-//            println(s"cnt0 $cnt0 w0 $w0 maxTxtW0 $maxTxtW0, cnt1 $cnt1 w1 $w1 maxTxtW1 $maxTxtW1")
+            //            println(s"cnt0 $cnt0 w0 $w0 maxTxtW0 $maxTxtW0, cnt1 $cnt1 w1 $w1 maxTxtW1 $maxTxtW1")
             if (cnt1 == cnt0) render(cnt1, maxTxtW1) else render(cnt0, maxTxtW0)
           }
         }
@@ -913,14 +931,14 @@ object Window {
 
       if (_overlay.nonEmpty) {
         val atOrig  = g.getTransform
-//        val ow      = fm.getStringBounds(_overlay, g)
+        //        val ow      = fm.getStringBounds(_overlay, g)
         val ow      = fm.stringWidth(_overlay)
-//        g.translate((imgExtent - ow) * 0.5f, imgX + 8f + fm.getAscent)
+        //        g.translate((imgExtent - ow) * 0.5f, imgX + 8f + fm.getAscent)
         // LOL, I have no idea how to calculate the correct offset for the right view
         val dx      = if (alignRight) {
-          imgX + config.overlayInset + fm.getAscent
+          imgX + overlayInset + fm.getAscent
         } else {
-          imgX + imgExtent - config.overlayInset - fm.getAscent
+          imgX + imgExtent - overlayInset - fm.getAscent
         }
         if (alignRight) {
           g.translate(dx, imgY + (imgExtent + ow) * 0.5f)
@@ -937,6 +955,17 @@ object Window {
         g.setTransform(atOrig)
       }
     }
+  }
+
+  private final class ViewSideImpl(protected val alignRight: Boolean)(implicit protected val config: Config)
+    extends Component with ViewSideBase {
+
+    opaque        = true
+    preferredSize = new Dimension(config.panelWidth, config.panelHeight)
+
+    override protected val imageObserver: ImageObserver = peer
+
+    override protected def paintComponent(g: Graphics2D): Unit = paintSide(g)
   }
 
   def photoDir: File = {
