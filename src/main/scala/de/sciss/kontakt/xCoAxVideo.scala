@@ -17,10 +17,11 @@ import de.sciss.file._
 import de.sciss.kontakt.Window.Content
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
-import java.awt.Color
+import java.awt.{Color, Toolkit}
 import java.awt.image.{BufferedImage, ImageObserver}
 import javax.imageio.ImageIO
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.swing.Swing
 
 /** Rendering the video version for the prolonged xCoAx exhibition.
   *
@@ -71,13 +72,29 @@ object xCoAxVideo {
       hasView       = false,
       crossEyed     = true,
     )
-    val r = Window.run()
-    val v = new ViewImpl
+    val scheduler = new OfflineScheduler(fps = config.fps)
+    val r = Window.run(scheduler)
+    val v = new ViewImpl(scheduler)
     r.view = Some(v)
     val futAll = r.initialEntries()
     futAll.foreach { entries =>
       println(s"entries.size ${entries.size}")
       r.setRandomEntries(entries)
+      scheduler.schedule(1000L) {
+        r.setRandomEntries(entries)
+      }
+      scheduler.schedule(10000L) {
+        ()
+      }
+
+      Swing.onEDT {
+        v.run()
+      }
+
+//      val advanced = scheduler.advance(2000L) {
+//        v.sync()
+//      }
+//      println(s"Advanced by $advanced frames")
     }
 
     // keep running
@@ -95,7 +112,10 @@ object xCoAxVideo {
     override protected def imageObserver: ImageObserver = null
   }
 
-  private final class ViewImpl(implicit config: Window.Config, vConfig: xCoAxVideo.Config) extends Window.View {
+  private final class ViewImpl(scheduler: OfflineScheduler)
+                              (implicit config: Window.Config, vConfig: xCoAxVideo.Config)
+    extends Window.View {
+
     private val width     = config.panelWidth * 2
     private val height    = config.panelHeight
     private val img       = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
@@ -105,6 +125,21 @@ object xCoAxVideo {
       g.setBackground(Color.black)
       g.setFont(textFont)
       g
+    }
+
+    private[this] val tk = Toolkit.getDefaultToolkit
+
+    def run(): Unit = {
+      /*val n =*/ scheduler.advanceFrames(1) {
+        sync()
+      }
+//      if (n > 0) Swing.onEDT(run())
+      if (scheduler.nonEmpty) {
+        Swing.onEDT {
+          run()
+        }
+        tk.sync()
+      }
     }
 
     private val leftView  = mkSideView(isLeft = true  )
@@ -127,14 +162,14 @@ object xCoAxVideo {
       res
     }
 
-    private var frameCount = 0
-
     private val formatName = if (vConfig.tempOut.extL == "png") "png" else "jpg"
 
     override def sync(): Unit = {
-      frameCount += 1
+      val frameCount = scheduler.frame
       println(s"sync $frameCount")
-      gImg.clearRect(0, 0, width, height)
+//      gImg.clearRect(0, 0, width, height)
+      gImg.setColor(Color.black)
+      gImg.fillRect(0, 0, width, height)
       val atOrig = gImg.getTransform
       leftView.paintSide(gImg)
       gImg.translate(config.panelWidth, 0)

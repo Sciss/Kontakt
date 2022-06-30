@@ -79,6 +79,7 @@ object Window {
                      idleMoveMinutes: Int     = 10,
                      moveMinDays    : Int     = 21, // three weeks
                      moveMaxDays    : Int     = 91, // c. three months
+                     seed           : Long    = System.currentTimeMillis(),
                    )
     extends Login.Config {
 
@@ -227,6 +228,10 @@ object Window {
       val moveMaxDays: Opt[Int] = opt("move-max-days", default = Some(default.moveMaxDays),
         descr = s"Maximum number of days offset between left/right when automatically moving (default: ${default.moveMaxDays})."
       )
+      val seed: Opt[Long] = opt("seed", default = Some(default.seed),
+        descr = s"Random seed (default: ${default.seed}).",
+        validate = x => x >= 0
+      )
 
       verify()
       val config: Config = Config(
@@ -258,11 +263,13 @@ object Window {
         idleMoveMinutes = idleMoveMinutes(),
         moveMinDays     = moveMinDays(),
         moveMaxDays     = moveMaxDays(),
+        seed            = seed(),
       )
     }
 
     implicit val config: Config = p.config
-    val r = run()
+    val scheduler: Scheduler = new RealtimeScheduler
+    val r = run(scheduler)
     val futAll = r.initialEntries()
     futAll.onComplete {
       case Success(_) => log(if (config.skipUpdate) "Entries read" else "Updates completed")
@@ -302,12 +309,13 @@ object Window {
     def initialEntries(): Future[Entries]
   }
 
-  def run()(implicit config: Config): Run = {
+  def run(scheduler: Scheduler)(implicit config: Config): Run = {
     println(nameAndVersion)
-    new RunImpl
+    new RunImpl(scheduler)
   }
 
-  private final class RunImpl()(implicit config: Config) extends Run {
+  private final class RunImpl(scheduler: Scheduler)(implicit config: Config) extends Run {
+    import scheduler.Token
 
     {
       val initDelayMS = math.max(0, config.initDelay) * 1000L
@@ -333,9 +341,9 @@ object Window {
     private[this] var entryRightIdx   = -1
     private[this] var entryLeftOver   = ""
     private[this] var entryRightOver  = ""
-    private[this] var globalSched     = Option.empty[TimerTask]
-    private[this] var overlaySched    = Option.empty[TimerTask]
-    private[this] lazy val rnd        = new Random()
+    private[this] var globalSched     = Option.empty[Token]
+    private[this] var overlaySched    = Option.empty[Token]
+    private[this] lazy val rnd        = new Random(config.seed)
 
     override def setRandomEntries(entries: Entries): Unit = {
       val daysSpace   = rnd.between(config.moveMinDays, config.moveMaxDays + 1)
@@ -368,14 +376,13 @@ object Window {
           globalEntries = entries
           entryLeftIdx  = entries.seq.indexOf(eLeft)
           entryRightIdx = entries.seq.indexOf(eRight)
-          overlaySched.foreach(_.cancel())
-          val tt: TimerTask = new TimerTask {
-            override def run(): Unit = entriesSync.synchronized {
+          overlaySched.foreach(scheduler.cancel)
+          val tt = scheduler.schedule(6000L) {
+            entriesSync.synchronized {
               clearOverlays()
             }
           }
           overlaySched = Some(tt)
-          timer.schedule(tt, 6000L)
         }
 
         Swing.onEDT {
@@ -396,10 +403,8 @@ object Window {
       }
     }
 
-    private[this] lazy val timer = new ju.Timer
-
     private def setOverlays(): Unit = {
-      overlaySched.foreach(_.cancel())
+      overlaySched.foreach(scheduler.cancel)
       val leftOver  = entryLeftOver
       val rightOver = entryRightOver
       Swing.onEDT {
@@ -424,38 +429,36 @@ object Window {
     }
 
     private def trigFetch(): Unit = {
-      globalSched .foreach(_.cancel())
-      overlaySched.foreach(_.cancel())
-      val tt: TimerTask = new TimerTask {
-        override def run(): Unit = entriesSync.synchronized {
+      globalSched .foreach(scheduler.cancel)
+      overlaySched.foreach(scheduler.cancel)
+      val tt =  scheduler.schedule(1000L) {
+        entriesSync.synchronized {
           val eLeft  = globalEntries.seq(entryLeftIdx  )
           val eRight = globalEntries.seq(entryRightIdx )
           setEntries(globalEntries, eLeft, eRight)
         }
       }
       globalSched = Some(tt)
-      timer.schedule(tt, 1000L)
       setOverlays()
     }
 
-    private[this] var idleSched = Option.empty[TimerTask]
+    private[this] var idleSched = Option.empty[Token]
 
     // synced via `entriesSync`
     private def restartIdleTimeOut(): Unit = {
-      idleSched.foreach(_.cancel())
+      idleSched.foreach(scheduler.cancel)
       if (config.idleMoveMinutes > 0) {
-        val tt: TimerTask = new TimerTask {
-          override def run(): Unit = entriesSync.synchronized {
+        val tt = scheduler.schedule(config.idleMoveMinutes * 60000L) {
+          entriesSync.synchronized {
             setRandomEntries(globalEntries)
           }
         }
         idleSched = Some(tt)
-        timer.schedule(tt, config.idleMoveMinutes * 60000L)
       }
     }
 
     private[this] val dialsOps = if (!config.dials) None else {
-      val m = Dials.run(Dials.Config(desktop = config.desktop), timer)
+      val m = Dials.run(Dials.Config(desktop = config.desktop), scheduler)
       m.addListener {
         case Dials.Left(inc) =>
           if (config.verbose) println(s"Left  dial: $inc")
@@ -512,18 +515,16 @@ object Window {
           if (config.skipUpdate || config.updateMinutes == 0) e0Fut else e0Fut.andThen {
             case Success(e0) =>
               val updateMillis = config.updateMinutes * 60 * 1000L
-              timer.schedule(new TimerTask {
-                override def run(): Unit = {
-                  log("running repeated update check...")
-                  updateEntries().foreach { e1 =>
-                    val hasNew = e1 != e0
-                    log(s"Update checked. New contents? $hasNew")
-                    if (hasNew && config.hasView) {
-                      setDefaultEntries(e1)
-                    }
+              scheduler.schedule(updateMillis, updateMillis) {
+                log("running repeated update check...")
+                updateEntries().foreach { e1 =>
+                  val hasNew = e1 != e0
+                  log(s"Update checked. New contents? $hasNew")
+                  if (hasNew && config.hasView) {
+                    setDefaultEntries(e1)
                   }
                 }
-              }, updateMillis, updateMillis)
+              }
           }
         }
       }
@@ -542,9 +543,9 @@ object Window {
         odt.plus(2, ChronoUnit.HOURS)
       }
       val dateSD  = Date.from(odtSD.toInstant)
-      timer.schedule(new TimerTask {
-        override def run(): Unit = quitOrShutdown(scheduled = true)
-      }, dateSD)
+      scheduler.schedule(dateSD) {
+        quitOrShutdown(scheduled = true)
+      }
       log(s"Shutdown scheduled for $dateSD")
     }
   } // end RunImpl

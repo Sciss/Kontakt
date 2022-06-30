@@ -73,8 +73,8 @@ object Dials {
 
     val c = p.config
     println("Dial")
-    val timer = new Timer
-    val m = run(c, timer)
+    val scheduler: Scheduler = new RealtimeScheduler
+    val m = run(c, scheduler)
     m.addListener {
       case Left(inc) =>
         println(s"Left : $inc")
@@ -127,7 +127,9 @@ object Dials {
     def ! (update: Update): Unit
   }
 
-  def run(config: Config, timer: Timer): Model = {
+  def run(config: Config, scheduler: Scheduler): Model = {
+    import scheduler.Token
+
     object model extends ModelImpl[Update] with Model {
       override def !(update: Update): Unit = dispatch(update)
     }
@@ -206,19 +208,19 @@ object Dials {
 //      private var timePressed = Long.MaxValue
       private val durMillis   = (config.offDuration * 1000).toLong
 
-      private var scheduled   = Option.empty[TimerTask]
+      private var scheduled   = Option.empty[Token]
 
       override def handleGpioPinDigitalStateChangeEvent(e: GpioPinDigitalStateChangeEvent): Unit = {
         println(s"button: ${e.getState}")
         val pressed = !e.getState.isHigh
 //        val t       = System.currentTimeMillis()
-        scheduled.foreach(_.cancel())
+        scheduled.foreach(scheduler.cancel)
         scheduled = None
         if (pressed) {
-          val tt = new TimerTask {
-            override def run(): Unit = model.!(Off)
+          val tt = scheduler.schedule(durMillis) {
+            model.!(Off)
           }
-          timer.schedule(tt, durMillis)
+
 //          timePressed = t
           scheduled = Some(tt)
 //        } else {
