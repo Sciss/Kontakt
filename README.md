@@ -80,7 +80,11 @@ java -cp kontakt.jar de.sciss.kontakt.Window --user USER --pass PASS --verbose -
 
 To put it together:
 
-    ffmpeg -i frames/frame-%d.jpg -r 25 xcoax-video.mp4
+    ffmpeg -i frames/frame-%d.jpg -r 25 -crf 19 xcoax-video.mp4
+
+To include fades:
+
+    -vf fade=type=in:start_frame=0:nb_frames=12,fade=type=out:start_frame=51659:nb_frames=34
 
 ## change-log
 
